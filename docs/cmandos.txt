@@ -1,0 +1,5 @@
+
+ingresar a panel pocketbase
+
+
+.\pocketbase.exe serve --dir "..\pb_data"

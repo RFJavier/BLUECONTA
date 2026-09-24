@@ -7,6 +7,14 @@
 *.dll
 *.so
 *.dylib
+.gocache
+.gomodcache
+.vscode
+pb_data
+*.zip
+*.rar
+POCKETBASE/
+build/
 
 # Test binary, built with `go test -c`
 *.test
