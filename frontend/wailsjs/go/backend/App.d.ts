@@ -21,6 +21,8 @@ export function DeleteAIAnalysis(arg1:string):Promise<void>;
 
 export function DeleteBillingCategory(arg1:string):Promise<void>;
 
+export function DeleteBudget(arg1:string):Promise<void>;
+
 export function DeleteCategory(arg1:string):Promise<void>;
 
 export function ExportTransactionsCSV(arg1:shared.TransactionFilterInput):Promise<string>;
@@ -41,6 +43,8 @@ export function GetBalance():Promise<shared.Balance>;
 
 export function GetBillingCategories():Promise<Array<shared.BillingCategory>>;
 
+export function GetBudgets():Promise<Array<shared.Budget>>;
+
 export function GetCategories():Promise<Array<shared.Category>>;
 
 export function GetCategoryRanking(arg1:shared.CategoryRankingInput):Promise<shared.CategoryRankingResult>;
@@ -51,9 +55,13 @@ export function GetTransactions():Promise<Array<shared.Transaction>>;
 
 export function GetTransactionsFiltered(arg1:shared.TransactionFilterInput):Promise<Array<shared.Transaction>>;
 
+export function GetWeeklySummary(arg1:number):Promise<shared.WeeklySummary>;
+
 export function SaveAIConfiguration(arg1:shared.SaveAIConfigurationInput):Promise<shared.AIConfiguration>;
 
 export function SaveAppSettings(arg1:shared.AppSettings):Promise<shared.AppSettings>;
+
+export function SaveBudget(arg1:shared.SaveBudgetInput):Promise<shared.Budget>;
 
 export function UpdateBillingCategory(arg1:shared.UpdateBillingCategoryInput):Promise<shared.BillingCategory>;
 

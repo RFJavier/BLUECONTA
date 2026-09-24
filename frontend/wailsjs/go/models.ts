@@ -171,6 +171,8 @@ export namespace shared {
 	}
 	export class AppSettings {
 	    ranking_days: number;
+	    week_start_day: number;
+	    weekly_budget: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -179,6 +181,8 @@ export namespace shared {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ranking_days = source["ranking_days"];
+	        this.week_start_day = source["week_start_day"];
+	        this.weekly_budget = source["weekly_budget"];
 	    }
 	}
 	export class Balance {
@@ -217,6 +221,26 @@ export namespace shared {
 	        this.default_rate = source["default_rate"];
 	        this.unit_label = source["unit_label"];
 	        this.transaction_type = source["transaction_type"];
+	    }
+	}
+	export class Budget {
+	    id: string;
+	    category_id: string;
+	    category_name: string;
+	    weekly_amount: number;
+	    active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Budget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.category_id = source["category_id"];
+	        this.category_name = source["category_name"];
+	        this.weekly_amount = source["weekly_amount"];
+	        this.active = source["active"];
 	    }
 	}
 	export class CalculateQuoteInput {
@@ -485,6 +509,20 @@ export namespace shared {
 	        this.api_key = source["api_key"];
 	    }
 	}
+	export class SaveBudgetInput {
+	    category_id: string;
+	    weekly_amount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveBudgetInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.category_id = source["category_id"];
+	        this.weekly_amount = source["weekly_amount"];
+	    }
+	}
 	export class Transaction {
 	    id: string;
 	    type: string;
@@ -583,6 +621,82 @@ export namespace shared {
 	        this.name = source["name"];
 	        this.type = source["type"];
 	    }
+	}
+	export class WeeklyCategorySummary {
+	    category_id: string;
+	    category_name: string;
+	    spent: number;
+	    budget: number;
+	    percent_used: number;
+	    remaining: number;
+	    delta_vs_prev: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WeeklyCategorySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.category_id = source["category_id"];
+	        this.category_name = source["category_name"];
+	        this.spent = source["spent"];
+	        this.budget = source["budget"];
+	        this.percent_used = source["percent_used"];
+	        this.remaining = source["remaining"];
+	        this.delta_vs_prev = source["delta_vs_prev"];
+	    }
+	}
+	export class WeeklySummary {
+	    start_date: string;
+	    end_date: string;
+	    total_spent: number;
+	    total_budget: number;
+	    total_percent: number;
+	    total_remaining: number;
+	    delta_vs_prev: number;
+	    global_budget: number;
+	    global_percent: number;
+	    global_remaining: number;
+	    available_balance: number;
+	    categories: WeeklyCategorySummary[];
+	
+	    static createFrom(source: any = {}) {
+	        return new WeeklySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.start_date = source["start_date"];
+	        this.end_date = source["end_date"];
+	        this.total_spent = source["total_spent"];
+	        this.total_budget = source["total_budget"];
+	        this.total_percent = source["total_percent"];
+	        this.total_remaining = source["total_remaining"];
+	        this.delta_vs_prev = source["delta_vs_prev"];
+	        this.global_budget = source["global_budget"];
+	        this.global_percent = source["global_percent"];
+	        this.global_remaining = source["global_remaining"];
+	        this.available_balance = source["available_balance"];
+	        this.categories = this.convertValues(source["categories"], WeeklyCategorySummary);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

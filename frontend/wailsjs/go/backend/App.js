@@ -38,6 +38,10 @@ export function DeleteBillingCategory(arg1) {
   return window['go']['backend']['App']['DeleteBillingCategory'](arg1);
 }
 
+export function DeleteBudget(arg1) {
+  return window['go']['backend']['App']['DeleteBudget'](arg1);
+}
+
 export function DeleteCategory(arg1) {
   return window['go']['backend']['App']['DeleteCategory'](arg1);
 }
@@ -78,6 +82,10 @@ export function GetBillingCategories() {
   return window['go']['backend']['App']['GetBillingCategories']();
 }
 
+export function GetBudgets() {
+  return window['go']['backend']['App']['GetBudgets']();
+}
+
 export function GetCategories() {
   return window['go']['backend']['App']['GetCategories']();
 }
@@ -98,12 +106,20 @@ export function GetTransactionsFiltered(arg1) {
   return window['go']['backend']['App']['GetTransactionsFiltered'](arg1);
 }
 
+export function GetWeeklySummary(arg1) {
+  return window['go']['backend']['App']['GetWeeklySummary'](arg1);
+}
+
 export function SaveAIConfiguration(arg1) {
   return window['go']['backend']['App']['SaveAIConfiguration'](arg1);
 }
 
 export function SaveAppSettings(arg1) {
   return window['go']['backend']['App']['SaveAppSettings'](arg1);
+}
+
+export function SaveBudget(arg1) {
+  return window['go']['backend']['App']['SaveBudget'](arg1);
 }
 
 export function UpdateBillingCategory(arg1) {

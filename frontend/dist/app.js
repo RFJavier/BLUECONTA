@@ -18,6 +18,9 @@ const state = {
   rankingEndDate: "",
   rankingMetric: "income",
   appSettings: { ranking_days: 0 },
+  weeklySummary: null,
+  weeklyOffset: 0,
+  budgets: [],
   transactionFilters: {
     start_date: "",
     end_date: "",
@@ -42,9 +45,14 @@ const newModelProviderEl = document.getElementById("newModelProvider");
 const categoryModalEl = document.getElementById("categoryModal");
 const transactionModalEl = document.getElementById("transactionModal");
 const transactionModalCategorySelectEl = document.getElementById("transactionModalCategorySelect");
+const budgetModalEl = document.getElementById("budgetModal");
+const budgetModalCategoryEl = document.getElementById("budgetModalCategory");
+const budgetModalAmountEl = document.getElementById("budgetModalAmount");
 
 let categoryModalType = "income";
+let openBudgetAfterCategory = false;
 const txModalState = { categoryId: null, type: "income" };
+const budgetModalState = { categoryId: null, locked: false };
 
 function fmtMoney(value) {
   return new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(value || 0);
@@ -416,6 +424,236 @@ function renderCategoryCards() {
   container.innerHTML = html;
 }
 
+function budgetStatus(pct) {
+  if (pct > 100) return "over";
+  if (pct > 80) return "warn";
+  return "ok";
+}
+
+function coverageInfo(available, budget) {
+  if (budget <= 0) return null;
+  if (available >= budget) {
+    return { status: "ok", text: "Cubierto por tus fondos" };
+  }
+  const missing = budget - available;
+  if (available <= 0) {
+    return { status: "over", text: `Sin fondos · te faltan ${fmtMoney(missing)}` };
+  }
+  return { status: "warn", text: `Te faltan ${fmtMoney(missing)}` };
+}
+
+function renderCoverage(el, available, budget) {
+  const info = coverageInfo(available, budget);
+  if (!info) {
+    el.innerHTML = "";
+    el.classList.add("hidden");
+    return;
+  }
+
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <span class="weekly-coverage-funds">Fondos disponibles <strong class="${available < 0 ? "expense" : "income"}">${fmtMoney(available)}</strong></span>
+    <span class="coverage-badge ${info.status}">${info.text}</span>
+  `;
+}
+
+function weekOffsetLabel(offset) {
+  if (offset === 0) return "Semana actual";
+  if (offset === -1) return "Semana anterior";
+  if (offset < 0) return `Hace ${-offset} semanas`;
+  return `En ${offset} semanas`;
+}
+
+function renderWeeklySummary() {
+  const s = state.weeklySummary;
+
+  document.getElementById("nextWeekBtn").disabled = state.weeklyOffset >= 0;
+
+  const rangeEl = document.getElementById("weeklyRangeLabel");
+  const offsetEl = document.getElementById("weeklyOffsetLabel");
+
+  if (!s) {
+    rangeEl.textContent = "-";
+    offsetEl.textContent = "";
+    document.getElementById("weeklySpent").textContent = fmtMoney(0);
+    document.getElementById("weeklyBudget").textContent = fmtMoney(0);
+    document.getElementById("weeklyRemaining").textContent = fmtMoney(0);
+    document.getElementById("weeklyDelta").textContent = fmtMoney(0);
+    document.getElementById("weeklyTotalCaption").textContent = "";
+    document.getElementById("weeklyCoverage").classList.add("hidden");
+    document.getElementById("weeklyCategoryCards").innerHTML = "<p class='empty'>Sin datos.</p>";
+    return;
+  }
+
+  rangeEl.textContent = `${fmtRangeDate(s.start_date)} — ${fmtRangeDate(s.end_date)}`;
+  offsetEl.textContent = weekOffsetLabel(state.weeklyOffset);
+
+  const hasGlobal = Number(s.global_budget) > 0;
+  const effectiveBudget = hasGlobal ? s.global_budget : s.total_budget;
+  const effectiveRemaining = hasGlobal ? s.global_remaining : s.total_remaining;
+  const effectivePct = hasGlobal ? s.global_percent : s.total_percent;
+
+  document.getElementById("weeklySpent").textContent = fmtMoney(s.total_spent);
+  document.getElementById("weeklyBudget").textContent = fmtMoney(effectiveBudget);
+  document.getElementById("weeklyBudgetLabel").textContent = hasGlobal ? "Tope global" : "Presupuesto";
+
+  const remainingEl = document.getElementById("weeklyRemaining");
+  remainingEl.textContent = fmtMoney(effectiveRemaining);
+  remainingEl.classList.toggle("income", effectiveRemaining >= 0);
+  remainingEl.classList.toggle("expense", effectiveRemaining < 0);
+
+  const deltaEl = document.getElementById("weeklyDelta");
+  deltaEl.textContent = fmtMoney(s.delta_vs_prev);
+  deltaEl.classList.toggle("income", s.delta_vs_prev <= 0);
+  deltaEl.classList.toggle("expense", s.delta_vs_prev > 0);
+
+  const totalFill = document.getElementById("weeklyTotalFill");
+  const pct = effectivePct || 0;
+  const status = budgetStatus(pct);
+  totalFill.className = `cat-track-fill ${status}`;
+  totalFill.style.width = `${Math.min(pct, 100)}%`;
+
+  let caption;
+  if (hasGlobal) {
+    caption = `${pct.toFixed(0)}% del tope global usado`;
+  } else if (s.total_budget > 0) {
+    caption = `${pct.toFixed(0)}% del presupuesto usado`;
+  } else {
+    caption = "Sin presupuesto definido";
+  }
+  document.getElementById("weeklyTotalCaption").textContent = caption;
+
+  renderCoverage(document.getElementById("weeklyCoverage"), Number(s.available_balance || 0), effectiveBudget);
+
+  renderWeeklyCategoryCards();
+}
+
+function renderWeeklyCategoryCards() {
+  const container = document.getElementById("weeklyCategoryCards");
+  const items = state.weeklySummary?.categories || [];
+
+  if (!items.length) {
+    container.innerHTML = "<p class='empty'>Sin gastos ni presupuestos en esta semana.</p>";
+    return;
+  }
+
+  container.innerHTML = items
+    .map((c) => {
+      const pct = c.percent_used || 0;
+      const status = budgetStatus(pct);
+      const hasBudget = c.budget > 0;
+      const fillPct = hasBudget ? Math.min(pct, 100) : 0;
+
+      const delta = c.delta_vs_prev;
+      const deltaText = `${delta > 0 ? "+" : ""}${fmtMoney(delta)}`;
+      const deltaClass = delta > 0 ? "worse" : delta < 0 ? "better" : "muted";
+
+      const meta = hasBudget
+        ? `${pct.toFixed(0)}% usado · restante ${fmtMoney(c.remaining)} · vs ant <span class="${deltaClass}">${deltaText}</span>`
+        : `Sin presupuesto · vs ant <span class="${deltaClass}">${deltaText}</span>`;
+
+      return `
+        <div class="cat-card expense" data-id="${c.category_id}" data-name="${esc(c.category_name)}">
+          <div class="cat-top">
+            <div class="cat-heading">
+              <strong>${esc(c.category_name)}</strong>
+              <span class="cat-pill expense">Egreso</span>
+            </div>
+            <span class="cat-value expense">${fmtMoney(c.spent)}</span>
+          </div>
+          <div class="cat-track">
+            <span class="cat-track-fill ${status}" style="width:${fillPct}%"></span>
+          </div>
+          <div class="cat-bottom">
+            <span class="cat-sub">${meta}</span>
+            <span class="actions">
+              <span class="cat-add-btn expense" data-action="register">+ Gasto</span>
+              <span class="cat-add-btn budget" data-action="budget">${hasBudget ? "Editar" : "Presupuesto"}</span>
+            </span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderBudgets() {
+  const list = document.getElementById("budgetsList");
+  if (!state.budgets.length) {
+    list.innerHTML = "<li class='empty'>No hay presupuestos definidos aun.</li>";
+    return;
+  }
+
+  list.innerHTML = state.budgets
+    .map(
+      (b) => `
+      <li>
+        <div>
+          <strong>${esc(b.category_name || "Sin categoría")}</strong>
+          <small>${fmtMoney(b.weekly_amount)} por semana</small>
+        </div>
+        <div class="actions">
+          <button type="button" class="tiny secondary" data-action="edit-budget" data-id="${b.id}" data-category="${b.category_id}">Editar</button>
+          <button type="button" class="tiny danger" data-action="delete-budget" data-id="${b.id}">Eliminar</button>
+        </div>
+      </li>`
+    )
+    .join("");
+}
+
+function renderWeeklyWidget() {
+  const s = state.weeklySummary;
+  const rangeEl = document.getElementById("weeklyWidgetRange");
+  const contentEl = document.getElementById("weeklyWidgetContent");
+
+  if (!s) {
+    rangeEl.textContent = "";
+    contentEl.innerHTML = "<p class='empty'>Sin datos.</p>";
+    return;
+  }
+
+  rangeEl.textContent = `${fmtRangeDate(s.start_date)} — ${fmtRangeDate(s.end_date)}`;
+
+  const hasGlobal = Number(s.global_budget) > 0;
+  const effectiveBudget = hasGlobal ? s.global_budget : s.total_budget;
+  const effectiveRemaining = hasGlobal ? s.global_remaining : s.total_remaining;
+  const effectivePct = hasGlobal ? s.global_percent : s.total_percent;
+
+  const pct = effectivePct || 0;
+  const status = budgetStatus(pct);
+  const hasBudget = effectiveBudget > 0;
+  const budgetLabel = hasGlobal ? "Tope global" : "Presupuesto";
+  const delta = s.delta_vs_prev;
+  const deltaText = delta > 0 ? `+${fmtMoney(delta)}` : fmtMoney(delta);
+  const deltaClass = delta > 0 ? "worse" : delta < 0 ? "better" : "muted";
+
+  const progress = hasBudget
+    ? `<div class="cat-track"><span class="cat-track-fill ${status}" style="width:${Math.min(pct, 100)}%"></span></div>`
+    : "";
+
+  const caption = hasBudget
+    ? `${pct.toFixed(0)}% usado · restante ${fmtMoney(effectiveRemaining)}`
+    : "Sin presupuesto definido";
+
+  const coverage = coverageInfo(Number(s.available_balance || 0), effectiveBudget);
+  const coverageHtml = coverage
+    ? `<span class="coverage-badge ${coverage.status}">${coverage.text}</span>`
+    : "";
+
+  contentEl.innerHTML = `
+    <div class="weekly-widget">
+      <div class="weekly-widget-row">
+        <span>Gastado <strong>${fmtMoney(s.total_spent)}</strong></span>
+        <span>${budgetLabel} <strong>${fmtMoney(effectiveBudget)}</strong></span>
+        <span>Restante <strong class="${effectiveRemaining < 0 ? "expense" : "income"}">${fmtMoney(effectiveRemaining)}</strong></span>
+        <span>vs ant <strong class="${deltaClass}">${deltaText}</strong></span>
+      </div>
+      ${progress}
+      <small class="muted">${caption} ${coverageHtml}</small>
+    </div>
+  `;
+}
+
 function renderQuoteResult() {
   const wrapper = document.getElementById("quoteResult");
   if (!state.quoteResult) {
@@ -579,6 +817,19 @@ async function refreshAIAnalyses() {
 async function refreshAppSettings() {
   state.appSettings = await getBackend().GetAppSettings();
   document.getElementById("appSettingsDays").value = state.appSettings.ranking_days ?? 0;
+  document.getElementById("appSettingsWeekStart").value = state.appSettings.week_start_day || 1;
+  document.getElementById("appSettingsWeeklyBudget").value = state.appSettings.weekly_budget ?? 0;
+}
+
+async function refreshWeeklySummary() {
+  state.weeklySummary = await getBackend().GetWeeklySummary(state.weeklyOffset);
+  renderWeeklySummary();
+  renderWeeklyWidget();
+}
+
+async function refreshBudgets() {
+  state.budgets = await getBackend().GetBudgets();
+  renderBudgets();
 }
 
 async function refreshAll() {
@@ -592,20 +843,28 @@ async function refreshAll() {
     refreshAIModels(),
     refreshAIAnalyses(),
     refreshAppSettings(),
+    refreshBudgets(),
+    refreshWeeklySummary(),
   ]);
   await refreshAIConfiguration();
 }
 
-function openCategoryModal() {
-  categoryModalType = "income";
+function openCategoryModal(type = "income") {
+  categoryModalType = type === "expense" ? "expense" : "income";
   syncCategoryTypeButtons();
   document.getElementById("categoryModalName").value = "";
   categoryModalEl.classList.remove("hidden");
   document.getElementById("categoryModalName").focus();
 }
 
+function openCategoryModalForBudget() {
+  openBudgetAfterCategory = true;
+  openCategoryModal("expense");
+}
+
 function closeCategoryModal() {
   categoryModalEl.classList.add("hidden");
+  openBudgetAfterCategory = false;
 }
 
 function syncCategoryTypeButtons() {
@@ -624,11 +883,15 @@ function onCategoryTypeClick(event) {
 async function onCreateCategoryFromModal(event) {
   event.preventDefault();
   const name = document.getElementById("categoryModalName").value.trim();
+  const shouldOpenBudget = openBudgetAfterCategory;
 
   try {
-    await getBackend().CreateCategory({ name, type: categoryModalType });
+    const created = await getBackend().CreateCategory({ name, type: categoryModalType });
     closeCategoryModal();
-    await Promise.all([refreshCategories(), refreshTransactions(), refreshDashboard(), refreshCategoryRanking()]);
+    await Promise.all([refreshCategories(), refreshTransactions(), refreshDashboard(), refreshCategoryRanking(), refreshWeeklySummary()]);
+    if (shouldOpenBudget && created && created.id) {
+      openBudgetModal(created.id, true);
+    }
     showToast("Categoria creada.");
   } catch (error) {
     showToast(error.message || "No se pudo crear la categoria.", true);
@@ -816,7 +1079,7 @@ async function onCreateTransactionFromModal(event) {
   try {
     await getBackend().CreateTransaction(payload);
     closeTransactionModal();
-    await Promise.all([refreshTransactions(), refreshDashboard(), refreshCategoryRanking()]);
+    await Promise.all([refreshTransactions(), refreshDashboard(), refreshCategoryRanking(), refreshWeeklySummary()]);
     showToast("Transaccion guardada.");
   } catch (error) {
     showToast(error.message || "No se pudo guardar la transaccion.", true);
@@ -1009,14 +1272,103 @@ async function onRankingMetricChange(metric) {
 async function onSaveAppSettings(event) {
   event.preventDefault();
   const days = Number(document.getElementById("appSettingsDays").value) || 0;
+  const weekStart = Number(document.getElementById("appSettingsWeekStart").value) || 1;
+  const weeklyBudget = Number(document.getElementById("appSettingsWeeklyBudget").value) || 0;
 
   try {
-    await getBackend().SaveAppSettings({ ranking_days: days });
-    state.appSettings = { ranking_days: days };
-    await refreshCategoryRanking();
+    await getBackend().SaveAppSettings({ ranking_days: days, week_start_day: weekStart, weekly_budget: weeklyBudget });
+    state.appSettings = { ranking_days: days, week_start_day: weekStart, weekly_budget: weeklyBudget };
+    await Promise.all([refreshCategoryRanking(), refreshWeeklySummary()]);
     showToast("Configuracion guardada.");
   } catch (error) {
     showToast(error.message || "No se pudo guardar la configuracion.", true);
+  }
+}
+
+function populateBudgetCategoryOptions(selectedId) {
+  const expenseCats = (state.categories || []).filter((c) => c.type === "expense");
+  budgetModalCategoryEl.innerHTML = expenseCats
+    .map((c) => `<option value='${c.id}'>${esc(c.name)}</option>`)
+    .join("");
+  if (selectedId && expenseCats.some((c) => c.id === selectedId)) {
+    budgetModalCategoryEl.value = selectedId;
+  }
+}
+
+function openBudgetModal(categoryId, locked = false) {
+  budgetModalState.categoryId = categoryId || null;
+  budgetModalState.locked = locked;
+
+  populateBudgetCategoryOptions(categoryId);
+  budgetModalCategoryEl.disabled = locked;
+
+  const existing = categoryId ? state.budgets.find((b) => b.category_id === categoryId) : null;
+  budgetModalAmountEl.value = existing ? Number(existing.weekly_amount).toFixed(2) : "";
+
+  budgetModalEl.classList.remove("hidden");
+  budgetModalAmountEl.focus();
+}
+
+function closeBudgetModal() {
+  budgetModalEl.classList.add("hidden");
+  budgetModalCategoryEl.disabled = false;
+}
+
+async function onSaveBudget(event) {
+  event.preventDefault();
+  const categoryId = budgetModalCategoryEl.value;
+  const amount = Number(budgetModalAmountEl.value);
+
+  try {
+    await getBackend().SaveBudget({ category_id: categoryId, weekly_amount: amount });
+    closeBudgetModal();
+    await Promise.all([refreshBudgets(), refreshWeeklySummary()]);
+    showToast("Presupuesto guardado.");
+  } catch (error) {
+    showToast(error.message || "No se pudo guardar el presupuesto.", true);
+  }
+}
+
+async function onDeleteBudget(id) {
+  const budget = state.budgets.find((b) => b.id === id);
+  if (!budget) return;
+
+  const approved = confirm(`Eliminar el presupuesto de '${budget.category_name || "esta categoria"}'?`);
+  if (!approved) return;
+
+  try {
+    await getBackend().DeleteBudget(id);
+    await Promise.all([refreshBudgets(), refreshWeeklySummary()]);
+    showToast("Presupuesto eliminado.");
+  } catch (error) {
+    showToast(error.message || "No se pudo eliminar el presupuesto.", true);
+  }
+}
+
+async function onPrevWeek() {
+  state.weeklyOffset -= 1;
+  await refreshWeeklySummary();
+}
+
+async function onNextWeek() {
+  if (state.weeklyOffset >= 0) return;
+  state.weeklyOffset += 1;
+  await refreshWeeklySummary();
+}
+
+async function onThisWeekFilter() {
+  const s = state.weeklySummary;
+  if (!s) return;
+
+  filterStartDateEl.value = s.start_date;
+  filterEndDateEl.value = s.end_date;
+  state.transactionFilters = readTransactionFiltersFromUI();
+
+  try {
+    await refreshTransactions();
+    showToast("Filtro 'esta semana' aplicado.");
+  } catch (error) {
+    showToast(error.message || "No se pudo aplicar el filtro.", true);
   }
 }
 
@@ -1053,7 +1405,8 @@ function wireEvents() {
     onRankingMetricChange(button.dataset.metric);
   });
 
-  document.getElementById("openCategoryModalBtn").addEventListener("click", openCategoryModal);
+  document.getElementById("openCategoryModalBtn").addEventListener("click", () => openCategoryModal("income"));
+  document.getElementById("newBudgetCategoryBtn").addEventListener("click", openCategoryModalForBudget);
   document.getElementById("categoryModalForm").addEventListener("submit", onCreateCategoryFromModal);
   document.getElementById("categoryModalCancel").addEventListener("click", closeCategoryModal);
   document.querySelector(".type-toggle").addEventListener("click", onCategoryTypeClick);
@@ -1096,6 +1449,47 @@ function wireEvents() {
   document.getElementById("appSettingsForm").addEventListener("submit", onSaveAppSettings);
   document.getElementById("aiAnalyzeForm").addEventListener("submit", onAnalyzeDashboardWithAI);
   document.getElementById("aiAnalysesList").addEventListener("click", onAIAnalysesAction);
+
+  document.getElementById("prevWeekBtn").addEventListener("click", onPrevWeek);
+  document.getElementById("nextWeekBtn").addEventListener("click", onNextWeek);
+  document.getElementById("addBudgetBtn").addEventListener("click", () => openBudgetModal(null, false));
+  document.getElementById("budgetModalForm").addEventListener("submit", onSaveBudget);
+  document.getElementById("budgetModalCancel").addEventListener("click", closeBudgetModal);
+  budgetModalEl.addEventListener("click", (event) => {
+    if (event.target === budgetModalEl) closeBudgetModal();
+  });
+  document.getElementById("thisWeekBtn").addEventListener("click", onThisWeekFilter);
+
+  document.getElementById("weeklyCategoryCards").addEventListener("click", (event) => {
+    const budgetBtn = event.target.closest("[data-action='budget']");
+    if (budgetBtn) {
+      const card = budgetBtn.closest(".cat-card");
+      if (card) openBudgetModal(card.dataset.id, true);
+      return;
+    }
+
+    const registerBtn = event.target.closest("[data-action='register']");
+    const card = registerBtn ? registerBtn.closest(".cat-card") : event.target.closest(".cat-card");
+    if (!card) return;
+
+    const category = getCategoryById(card.dataset.id);
+    if (category) {
+      openTransactionModalForCategory(category);
+    } else {
+      openTransactionModalForType("expense");
+    }
+  });
+
+  document.getElementById("budgetsList").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const { action, id } = button.dataset;
+    if (action === "edit-budget") {
+      openBudgetModal(button.dataset.category, true);
+    } else if (action === "delete-budget") {
+      onDeleteBudget(id);
+    }
+  });
 }
 
 (async function init() {

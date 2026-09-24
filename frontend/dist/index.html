@@ -24,6 +24,10 @@
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
           <span>Dashboard</span>
         </button>
+        <button type="button" class="menu-tile" data-view="semana" role="menuitem">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          <span>Semana</span>
+        </button>
         <button type="button" class="menu-tile" data-view="ayuda" role="menuitem">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
           <span>Asistencia con IA</span>
@@ -50,6 +54,14 @@
           <button type="button" id="openHelpBtn" class="secondary">Asistencia con IA</button>
           <button type="button" id="openCategoryModalBtn" class="secondary">Crear categoria</button>
         </div>
+      </div>
+
+      <div class="panel-sub" id="weeklyWidget">
+        <div class="view-header">
+          <h3>Esta semana</h3>
+          <small id="weeklyWidgetRange" class="muted"></small>
+        </div>
+        <div id="weeklyWidgetContent"></div>
       </div>
 
       <div class="panel-sub">
@@ -120,6 +132,68 @@
           </thead>
           <tbody id="dashboardBillingBody"></tbody>
         </table>
+      </div>
+    </section>
+
+    <section id="view-semana" class="view hidden-view">
+      <div class="view-header">
+        <h2>Resumen Semanal</h2>
+        <div class="week-nav">
+          <button type="button" id="prevWeekBtn" class="secondary">‹</button>
+          <div class="week-nav-label">
+            <strong id="weeklyRangeLabel">-</strong>
+            <small id="weeklyOffsetLabel" class="muted"></small>
+          </div>
+          <button type="button" id="nextWeekBtn" class="secondary">›</button>
+        </div>
+      </div>
+
+      <div class="stats-grid weekly-stats">
+        <div class="stat-card">
+          <span>Gastado</span>
+          <strong id="weeklySpent">$0.00</strong>
+        </div>
+        <div class="stat-card">
+          <span id="weeklyBudgetLabel">Presupuesto</span>
+          <strong id="weeklyBudget">$0.00</strong>
+        </div>
+        <div class="stat-card">
+          <span>Restante</span>
+          <strong id="weeklyRemaining">$0.00</strong>
+        </div>
+        <div class="stat-card">
+          <span>vs semana anterior</span>
+          <strong id="weeklyDelta">$0.00</strong>
+        </div>
+      </div>
+
+      <div class="panel-sub">
+        <div class="weekly-total">
+          <div class="cat-track">
+            <span id="weeklyTotalFill" class="cat-track-fill ok"></span>
+          </div>
+          <small id="weeklyTotalCaption" class="muted"></small>
+          <div id="weeklyCoverage" class="weekly-coverage hidden"></div>
+        </div>
+      </div>
+
+      <div class="panel-sub">
+        <div class="view-header">
+          <h3>Gasto por categoria</h3>
+          <small class="muted">Haz clic en una categoria para registrar un gasto</small>
+        </div>
+        <div id="weeklyCategoryCards" class="cat-grid"></div>
+      </div>
+
+      <div class="panel-sub">
+        <div class="view-header">
+          <h3>Presupuestos semanales</h3>
+          <div class="view-header-actions">
+            <button type="button" id="newBudgetCategoryBtn" class="secondary">Nueva categoria de gasto</button>
+            <button type="button" id="addBudgetBtn" class="secondary">Agregar presupuesto</button>
+          </div>
+        </div>
+        <ul id="budgetsList" class="list"></ul>
       </div>
     </section>
 
@@ -243,6 +317,7 @@
           </label>
           <div class="filter-actions">
             <button type="submit">Aplicar filtros</button>
+            <button id="thisWeekBtn" type="button" class="secondary">Esta semana</button>
             <button id="resetFiltersBtn" type="button" class="secondary">Limpiar</button>
             <button id="exportCsvBtn" type="button" class="secondary">Exportar CSV</button>
           </div>
@@ -323,6 +398,22 @@
             Dias del top de categorias (0 = desde el 1 del mes)
             <input id="appSettingsDays" type="number" min="0" step="1" value="0">
           </label>
+          <label>
+            Inicio de la semana
+            <select id="appSettingsWeekStart">
+              <option value="1">Lunes</option>
+              <option value="2">Martes</option>
+              <option value="3">Miercoles</option>
+              <option value="4">Jueves</option>
+              <option value="5">Viernes</option>
+              <option value="6">Sabado</option>
+              <option value="7">Domingo</option>
+            </select>
+          </label>
+          <label>
+            Tope global semanal (0 = sin tope)
+            <input id="appSettingsWeeklyBudget" type="number" min="0" step="0.01" value="0">
+          </label>
           <button type="submit">Guardar</button>
         </form>
       </article>
@@ -371,6 +462,26 @@
         </label>
         <div class="modal-actions">
           <button type="button" class="secondary" id="transactionModalCancel">Cancelar</button>
+          <button type="submit">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="budgetModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Definir presupuesto</h3>
+      <form id="budgetModalForm" class="form">
+        <label>
+          Categoria (egreso)
+          <select id="budgetModalCategory" required></select>
+        </label>
+        <label>
+          Monto semanal
+          <input id="budgetModalAmount" type="number" min="0" step="0.01" required>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary" id="budgetModalCancel">Cancelar</button>
           <button type="submit">Guardar</button>
         </div>
       </form>

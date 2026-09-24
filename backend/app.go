@@ -99,6 +99,28 @@ func (a *App) SaveAppSettings(input shared.AppSettings) (*shared.AppSettings, er
 	return a.accounting.SaveAppSettings(input)
 }
 
+func (a *App) GetWeeklySummary(weekOffset int) (*shared.WeeklySummary, error) {
+	return a.accounting.GetWeeklySummary(weekOffset)
+}
+
+func (a *App) GetBudgets() ([]shared.Budget, error) {
+	return a.accounting.GetBudgets()
+}
+
+func (a *App) SaveBudget(input shared.SaveBudgetInput) (*shared.Budget, error) {
+	if !a.licenseManager.AllowsWriteOperations() {
+		return nil, fmt.Errorf("license validation failed: write operations blocked")
+	}
+	return a.accounting.SaveBudget(input)
+}
+
+func (a *App) DeleteBudget(id string) error {
+	if !a.licenseManager.AllowsWriteOperations() {
+		return fmt.Errorf("license validation failed: write operations blocked")
+	}
+	return a.accounting.DeleteBudget(id)
+}
+
 func (a *App) GetAIProviders() ([]shared.AIProvider, error) {
 	return a.accounting.GetAIProviders()
 }

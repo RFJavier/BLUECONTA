@@ -458,16 +458,25 @@ func (s *AccountingService) GetAppSettings() (*shared.AppSettings, error) {
 		return nil, fmt.Errorf("query app settings: %w", err)
 	}
 	if len(records) == 0 {
-		return &shared.AppSettings{RankingDays: 0}, nil
+		return &shared.AppSettings{RankingDays: 0, WeekStartDay: defaultWeekStartDay, WeeklyBudget: 0}, nil
 	}
 
-	return &shared.AppSettings{RankingDays: records[0].GetInt("ranking_days")}, nil
+	return &shared.AppSettings{
+		RankingDays:  records[0].GetInt("ranking_days"),
+		WeekStartDay: normalizeWeekStartDay(records[0].GetInt("week_start_day")),
+		WeeklyBudget: records[0].GetFloat("weekly_budget"),
+	}, nil
 }
 
 func (s *AccountingService) SaveAppSettings(input shared.AppSettings) (*shared.AppSettings, error) {
 	days := input.RankingDays
 	if days < 0 {
 		days = 0
+	}
+	weekStartDay := normalizeWeekStartDay(input.WeekStartDay)
+	weeklyBudget := input.WeeklyBudget
+	if weeklyBudget < 0 {
+		weeklyBudget = 0
 	}
 
 	collection, err := s.app.FindCollectionByNameOrId("app_settings")
@@ -488,11 +497,346 @@ func (s *AccountingService) SaveAppSettings(input shared.AppSettings) (*shared.A
 	}
 
 	record.Set("ranking_days", days)
+	record.Set("week_start_day", weekStartDay)
+	record.Set("weekly_budget", weeklyBudget)
 	if err := s.app.Save(record); err != nil {
 		return nil, fmt.Errorf("save app settings: %w", err)
 	}
 
-	return &shared.AppSettings{RankingDays: days}, nil
+	return &shared.AppSettings{RankingDays: days, WeekStartDay: weekStartDay, WeeklyBudget: weeklyBudget}, nil
+}
+
+func (s *AccountingService) GetBudgets() ([]shared.Budget, error) {
+	records, err := s.app.FindRecordsByFilter("budgets", "", "", 200, 0)
+	if err != nil {
+		return nil, fmt.Errorf("query budgets: %w", err)
+	}
+
+	if errs := s.app.ExpandRecords(records, []string{"category_id"}, nil); len(errs) > 0 {
+		return nil, fmt.Errorf("expand budget category: %v", errs)
+	}
+
+	result := make([]shared.Budget, 0, len(records))
+	for _, r := range records {
+		categoryName := ""
+		if expanded := r.ExpandedOne("category_id"); expanded != nil {
+			categoryName = expanded.GetString("name")
+		}
+
+		result = append(result, shared.Budget{
+			ID:           r.Id,
+			CategoryID:   r.GetString("category_id"),
+			CategoryName: categoryName,
+			WeeklyAmount: r.GetFloat("weekly_amount"),
+			Active:       r.GetBool("active"),
+		})
+	}
+
+	return result, nil
+}
+
+func (s *AccountingService) SaveBudget(input shared.SaveBudgetInput) (*shared.Budget, error) {
+	categoryID := strings.TrimSpace(input.CategoryID)
+	if categoryID == "" {
+		return nil, errors.New("category is required")
+	}
+	if input.WeeklyAmount < 0 {
+		return nil, errors.New("weekly amount cannot be negative")
+	}
+
+	category, err := s.app.FindRecordById("categories", categoryID)
+	if err != nil {
+		return nil, fmt.Errorf("category not found: %w", err)
+	}
+	if shared.TransactionType(category.GetString("type")) != shared.TransactionTypeExpense {
+		return nil, errors.New("budget can only be set for expense categories")
+	}
+
+	collection, err := s.app.FindCollectionByNameOrId("budgets")
+	if err != nil {
+		return nil, fmt.Errorf("load budgets collection: %w", err)
+	}
+
+	existing, err := s.app.FindRecordsByFilter("budgets", "category_id = {:category_id}", "", 1, 0, dbx.Params{"category_id": categoryID})
+	if err != nil {
+		return nil, fmt.Errorf("query existing budget: %w", err)
+	}
+
+	var record *core.Record
+	if len(existing) > 0 {
+		record = existing[0]
+	} else {
+		record = core.NewRecord(collection)
+		record.Set("category_id", categoryID)
+		record.Set("active", true)
+	}
+	record.Set("weekly_amount", input.WeeklyAmount)
+	if err := s.app.Save(record); err != nil {
+		return nil, fmt.Errorf("save budget: %w", err)
+	}
+
+	return &shared.Budget{
+		ID:           record.Id,
+		CategoryID:   record.GetString("category_id"),
+		CategoryName: category.GetString("name"),
+		WeeklyAmount: record.GetFloat("weekly_amount"),
+		Active:       record.GetBool("active"),
+	}, nil
+}
+
+func (s *AccountingService) DeleteBudget(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("budget id is required")
+	}
+
+	record, err := s.app.FindRecordById("budgets", id)
+	if err != nil {
+		return fmt.Errorf("find budget: %w", err)
+	}
+
+	if err := s.app.Delete(record); err != nil {
+		return fmt.Errorf("delete budget: %w", err)
+	}
+
+	return nil
+}
+
+func (s *AccountingService) GetWeeklySummary(weekOffset int) (*shared.WeeklySummary, error) {
+	startDay := s.weekStartDay()
+	now := time.Now()
+	weekStart := startOfWeek(now, startDay).AddDate(0, 0, 7*weekOffset)
+	weekEnd := weekStart.AddDate(0, 0, 7)
+
+	spent, err := s.expensesByCategory(weekStart, weekEnd)
+	if err != nil {
+		return nil, err
+	}
+
+	prevSpent, err := s.expensesByCategory(weekStart.AddDate(0, 0, -7), weekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	budgets, err := s.activeBudgetMap()
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make(map[string]bool, len(spent)+len(prevSpent)+len(budgets))
+	for id := range budgets {
+		ids[id] = true
+	}
+	for id := range spent {
+		ids[id] = true
+	}
+	for id := range prevSpent {
+		ids[id] = true
+	}
+
+	categories := make([]shared.WeeklyCategorySummary, 0, len(ids))
+	var totalSpent, totalBudget float64
+	for id := range ids {
+		name := ""
+		cur := 0.0
+		prev := 0.0
+		budget := 0.0
+
+		if b, ok := budgets[id]; ok {
+			budget = b.WeeklyAmount
+			if name == "" {
+				name = b.CategoryName
+			}
+		}
+		if c, ok := spent[id]; ok {
+			cur = c.spent
+			if name == "" {
+				name = c.name
+			}
+		}
+		if c, ok := prevSpent[id]; ok {
+			prev = c.spent
+			if name == "" {
+				name = c.name
+			}
+		}
+		if name == "" {
+			name = "Sin categoría"
+		}
+
+		percent := 0.0
+		if budget > 0 {
+			percent = cur / budget * 100
+		}
+
+		categories = append(categories, shared.WeeklyCategorySummary{
+			CategoryID:   id,
+			CategoryName: name,
+			Spent:        cur,
+			Budget:       budget,
+			PercentUsed:  percent,
+			Remaining:    budget - cur,
+			DeltaVsPrev:  cur - prev,
+		})
+
+		totalSpent += cur
+		totalBudget += budget
+	}
+
+	sort.SliceStable(categories, func(i, j int) bool {
+		if categories[i].Spent == categories[j].Spent {
+			return strings.ToLower(categories[i].CategoryName) < strings.ToLower(categories[j].CategoryName)
+		}
+		return categories[i].Spent > categories[j].Spent
+	})
+
+	var prevTotal float64
+	for _, c := range prevSpent {
+		prevTotal += c.spent
+	}
+
+	totalPercent := 0.0
+	if totalBudget > 0 {
+		totalPercent = totalSpent / totalBudget * 100
+	}
+
+	globalBudget := s.globalWeeklyBudget()
+	globalPercent := 0.0
+	if globalBudget > 0 {
+		globalPercent = totalSpent / globalBudget * 100
+	}
+
+	balance, err := s.GetBalance()
+	if err != nil {
+		return nil, err
+	}
+
+	return &shared.WeeklySummary{
+		StartDate:        weekStart.Format("2006-01-02"),
+		EndDate:          weekEnd.AddDate(0, 0, -1).Format("2006-01-02"),
+		TotalSpent:       totalSpent,
+		TotalBudget:      totalBudget,
+		TotalPercent:     totalPercent,
+		TotalRemaining:   totalBudget - totalSpent,
+		DeltaVsPrev:      totalSpent - prevTotal,
+		GlobalBudget:     globalBudget,
+		GlobalPercent:    globalPercent,
+		GlobalRemaining:  globalBudget - totalSpent,
+		AvailableBalance: balance.Total,
+		Categories:       categories,
+	}, nil
+}
+
+type categoryExpense struct {
+	name  string
+	spent float64
+}
+
+func (s *AccountingService) expensesByCategory(start, end time.Time) (map[string]*categoryExpense, error) {
+	records, err := s.app.FindRecordsByFilter("transactions",
+		"type = {:type} && created_at >= {:start} && created_at < {:end}",
+		"", 2000, 0, dbx.Params{
+			"type":  string(shared.TransactionTypeExpense),
+			"start": start.Format(time.RFC3339),
+			"end":   end.Format(time.RFC3339),
+		})
+	if err != nil {
+		return nil, fmt.Errorf("query weekly expenses: %w", err)
+	}
+
+	if errs := s.app.ExpandRecords(records, []string{"category_id"}, nil); len(errs) > 0 {
+		return nil, fmt.Errorf("expand expense category: %v", errs)
+	}
+
+	result := make(map[string]*categoryExpense)
+	for _, r := range records {
+		categoryID := r.GetString("category_id")
+		if categoryID == "" {
+			continue
+		}
+
+		entry := result[categoryID]
+		if entry == nil {
+			name := ""
+			if expanded := r.ExpandedOne("category_id"); expanded != nil {
+				name = expanded.GetString("name")
+			}
+			if name == "" {
+				name = "Sin categoría"
+			}
+			entry = &categoryExpense{name: name}
+			result[categoryID] = entry
+		}
+
+		entry.spent += r.GetFloat("amount")
+	}
+
+	return result, nil
+}
+
+func (s *AccountingService) activeBudgetMap() (map[string]*shared.Budget, error) {
+	records, err := s.app.FindRecordsByFilter("budgets", "active = true", "", 200, 0)
+	if err != nil {
+		return nil, fmt.Errorf("query active budgets: %w", err)
+	}
+
+	if errs := s.app.ExpandRecords(records, []string{"category_id"}, nil); len(errs) > 0 {
+		return nil, fmt.Errorf("expand active budget category: %v", errs)
+	}
+
+	result := make(map[string]*shared.Budget, len(records))
+	for _, r := range records {
+		categoryName := ""
+		if expanded := r.ExpandedOne("category_id"); expanded != nil {
+			categoryName = expanded.GetString("name")
+		}
+
+		result[r.GetString("category_id")] = &shared.Budget{
+			ID:           r.Id,
+			CategoryID:   r.GetString("category_id"),
+			CategoryName: categoryName,
+			WeeklyAmount: r.GetFloat("weekly_amount"),
+			Active:       r.GetBool("active"),
+		}
+	}
+
+	return result, nil
+}
+
+func (s *AccountingService) weekStartDay() int {
+	records, err := s.app.FindRecordsByFilter("app_settings", "", "", 1, 0)
+	if err != nil || len(records) == 0 {
+		return defaultWeekStartDay
+	}
+	return normalizeWeekStartDay(records[0].GetInt("week_start_day"))
+}
+
+func (s *AccountingService) globalWeeklyBudget() float64 {
+	records, err := s.app.FindRecordsByFilter("app_settings", "", "", 1, 0)
+	if err != nil || len(records) == 0 {
+		return 0
+	}
+	budget := records[0].GetFloat("weekly_budget")
+	if budget < 0 {
+		return 0
+	}
+	return budget
+}
+
+const defaultWeekStartDay = 1
+
+func normalizeWeekStartDay(value int) int {
+	if value < 1 || value > 7 {
+		return defaultWeekStartDay
+	}
+	return value
+}
+
+func startOfWeek(reference time.Time, weekStartDay int) time.Time {
+	current := time.Date(reference.Year(), reference.Month(), reference.Day(), 0, 0, 0, 0, reference.Location())
+	target := weekStartDay % 7
+	daysSince := (int(current.Weekday()) - target + 7) % 7
+	return current.AddDate(0, 0, -daysSince)
 }
 
 func rankingValue(item shared.CategoryRankingItem, metric shared.CategoryRankingMetric) float64 {

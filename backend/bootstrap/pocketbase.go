@@ -40,6 +40,10 @@ func ensureCollections(app *pocketbase.PocketBase) error {
 		if err := app.Save(categories); err != nil {
 			return fmt.Errorf("create categories collection: %w", err)
 		}
+
+		if err := seedExpenseCategories(app, categories); err != nil {
+			return fmt.Errorf("seed expense categories: %w", err)
+		}
 	}
 
 	if _, err := app.FindCollectionByNameOrId("transactions"); err != nil {
@@ -50,6 +54,17 @@ func ensureCollections(app *pocketbase.PocketBase) error {
 		transactions := newTransactionsCollection(categories.Id)
 		if err := app.Save(transactions); err != nil {
 			return fmt.Errorf("create transactions collection: %w", err)
+		}
+	}
+
+	if _, err := app.FindCollectionByNameOrId("budgets"); err != nil {
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("find budgets collection: %w", err)
+		}
+
+		budgets := newBudgetsCollection(categories.Id)
+		if err := app.Save(budgets); err != nil {
+			return fmt.Errorf("create budgets collection: %w", err)
 		}
 	}
 
@@ -193,6 +208,29 @@ func newTransactionsCollection(categoriesID string) *core.Collection {
 	return collection
 }
 
+func newBudgetsCollection(categoriesID string) *core.Collection {
+	collection := core.NewBaseCollection("budgets")
+	collection.Fields.Add(
+		&core.RelationField{
+			Name:         "category_id",
+			Required:     true,
+			CollectionId: categoriesID,
+			MaxSelect:    1,
+		},
+		&core.NumberField{
+			Name:     "weekly_amount",
+			Required: true,
+			Min:      float64Ptr(0),
+		},
+		&core.BoolField{
+			Name: "active",
+		},
+	)
+	collection.AddIndex("idx_budgets_category_unique", true, "category_id", "")
+
+	return collection
+}
+
 func newBillingCategoriesCollection() *core.Collection {
 	collection := core.NewBaseCollection("billing_categories")
 	collection.Fields.Add(
@@ -248,6 +286,21 @@ func seedBillingCategories(app *pocketbase.PocketBase, collection *core.Collecti
 		record.Set("default_rate", item.defaultRate)
 		record.Set("unit_label", item.unitLabel)
 		record.Set("transaction_type", item.transactionType)
+		if err := app.Save(record); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func seedExpenseCategories(app *pocketbase.PocketBase, collection *core.Collection) error {
+	names := []string{"Alimentación", "Transporte", "Otros"}
+
+	for _, name := range names {
+		record := core.NewRecord(collection)
+		record.Set("name", name)
+		record.Set("type", "expense")
 		if err := app.Save(record); err != nil {
 			return err
 		}
@@ -359,6 +412,16 @@ func newAppSettingsCollection() *core.Collection {
 	collection.Fields.Add(
 		&core.NumberField{
 			Name: "ranking_days",
+			Min:  float64Ptr(0),
+		},
+		&core.NumberField{
+			Name:    "week_start_day",
+			Min:     float64Ptr(0),
+			Max:     float64Ptr(7),
+			OnlyInt: true,
+		},
+		&core.NumberField{
+			Name: "weekly_budget",
 			Min:  float64Ptr(0),
 		},
 	)

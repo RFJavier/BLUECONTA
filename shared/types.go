@@ -153,7 +153,47 @@ type CategoryRankingResult struct {
 }
 
 type AppSettings struct {
-	RankingDays int `json:"ranking_days"`
+	RankingDays  int     `json:"ranking_days"`
+	WeekStartDay int     `json:"week_start_day"`
+	WeeklyBudget float64 `json:"weekly_budget"`
+}
+
+type Budget struct {
+	ID           string  `json:"id"`
+	CategoryID   string  `json:"category_id"`
+	CategoryName string  `json:"category_name"`
+	WeeklyAmount float64 `json:"weekly_amount"`
+	Active       bool    `json:"active"`
+}
+
+type SaveBudgetInput struct {
+	CategoryID   string  `json:"category_id"`
+	WeeklyAmount float64 `json:"weekly_amount"`
+}
+
+type WeeklyCategorySummary struct {
+	CategoryID   string  `json:"category_id"`
+	CategoryName string  `json:"category_name"`
+	Spent        float64 `json:"spent"`
+	Budget       float64 `json:"budget"`
+	PercentUsed  float64 `json:"percent_used"`
+	Remaining    float64 `json:"remaining"`
+	DeltaVsPrev  float64 `json:"delta_vs_prev"`
+}
+
+type WeeklySummary struct {
+	StartDate        string                  `json:"start_date"`
+	EndDate          string                  `json:"end_date"`
+	TotalSpent       float64                 `json:"total_spent"`
+	TotalBudget      float64                 `json:"total_budget"`
+	TotalPercent     float64                 `json:"total_percent"`
+	TotalRemaining   float64                 `json:"total_remaining"`
+	DeltaVsPrev      float64                 `json:"delta_vs_prev"`
+	GlobalBudget     float64                 `json:"global_budget"`
+	GlobalPercent    float64                 `json:"global_percent"`
+	GlobalRemaining  float64                 `json:"global_remaining"`
+	AvailableBalance float64                 `json:"available_balance"`
+	Categories       []WeeklyCategorySummary `json:"categories"`
 }
 
 type AIProvider struct {
