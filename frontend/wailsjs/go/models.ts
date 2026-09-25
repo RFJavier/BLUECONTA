@@ -173,6 +173,8 @@ export namespace shared {
 	    ranking_days: number;
 	    week_start_day: number;
 	    weekly_budget: number;
+	    allow_over_budget: boolean;
+	    allow_over_global: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -183,6 +185,8 @@ export namespace shared {
 	        this.ranking_days = source["ranking_days"];
 	        this.week_start_day = source["week_start_day"];
 	        this.weekly_budget = source["weekly_budget"];
+	        this.allow_over_budget = source["allow_over_budget"];
+	        this.allow_over_global = source["allow_over_global"];
 	    }
 	}
 	export class Balance {
@@ -465,6 +469,20 @@ export namespace shared {
 		    return a;
 		}
 	}
+	export class LegalInfo {
+	    license: string;
+	    third_party_licenses: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LegalInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.license = source["license"];
+	        this.third_party_licenses = source["third_party_licenses"];
+	    }
+	}
 	export class QuoteResult {
 	    billing_category_id: string;
 	    category_name: string;
@@ -658,6 +676,9 @@ export namespace shared {
 	    global_percent: number;
 	    global_remaining: number;
 	    available_balance: number;
+	    income: number;
+	    savings: number;
+	    prev_savings: number;
 	    categories: WeeklyCategorySummary[];
 	
 	    static createFrom(source: any = {}) {
@@ -677,6 +698,9 @@ export namespace shared {
 	        this.global_percent = source["global_percent"];
 	        this.global_remaining = source["global_remaining"];
 	        this.available_balance = source["available_balance"];
+	        this.income = source["income"];
+	        this.savings = source["savings"];
+	        this.prev_savings = source["prev_savings"];
 	        this.categories = this.convertValues(source["categories"], WeeklyCategorySummary);
 	    }
 	

@@ -156,6 +156,13 @@ func (s *AccountingService) CreateTransaction(input shared.CreateTransactionInpu
 		return nil, errors.New("transaction type and category type must match")
 	}
 
+	if err := s.ensureWithinWeeklyBudget(categoryRecord[0].Id, input.Amount, input.Type); err != nil {
+		return nil, err
+	}
+	if err := s.ensureWithinGlobalBudget(input.Amount, input.Type); err != nil {
+		return nil, err
+	}
+
 	transactionsCollection, err := s.app.FindCollectionByNameOrId("transactions")
 	if err != nil {
 		return nil, fmt.Errorf("load transactions collection: %w", err)
@@ -211,6 +218,83 @@ func (s *AccountingService) GetTransactionsFiltered(input shared.TransactionFilt
 	}
 
 	return result, nil
+}
+
+func (s *AccountingService) WeekTransactions(weekOffset int) ([]shared.Transaction, time.Time, time.Time, error) {
+	return s.weekTransactions(weekOffset)
+}
+
+func (s *AccountingService) weekTransactions(weekOffset int) ([]shared.Transaction, time.Time, time.Time, error) {
+	start, end := s.weekBounds(weekOffset)
+	records, err := s.app.FindRecordsByFilter("transactions",
+		"created_at >= {:start} && created_at < {:end}",
+		"created_at", 2000, 0, dbx.Params{
+			"start": start.Format(time.RFC3339),
+			"end":   end.Format(time.RFC3339),
+		})
+	if err != nil {
+		return nil, time.Time{}, time.Time{}, fmt.Errorf("query weekly transactions: %w", err)
+	}
+	if errs := s.app.ExpandRecords(records, []string{"category_id"}, nil); len(errs) > 0 {
+		return nil, time.Time{}, time.Time{}, fmt.Errorf("expand category relation: %v", errs)
+	}
+
+	result := make([]shared.Transaction, 0, len(records))
+	for _, r := range records {
+		categoryName := ""
+		if expanded := r.ExpandedOne("category_id"); expanded != nil {
+			categoryName = expanded.GetString("name")
+		}
+		result = append(result, shared.Transaction{
+			ID:          r.Id,
+			Type:        shared.TransactionType(r.GetString("type")),
+			Amount:      r.GetFloat("amount"),
+			Description: r.GetString("description"),
+			CategoryID:  r.GetString("category_id"),
+			Category:    categoryName,
+			CreatedAt:   parseRecordTime(r, "created_at"),
+		})
+	}
+	return result, start, end, nil
+}
+
+func (s *AccountingService) ExportWeeklyCSV(weekOffset int) (string, error) {
+	transactions, start, end, err := s.weekTransactions(weekOffset)
+	if err != nil {
+		return "", err
+	}
+
+	buffer := &bytes.Buffer{}
+	writer := csv.NewWriter(buffer)
+	rows := [][]string{{"Fecha", "Cuenta", "Tipo", "Concepto", "Debe", "Haber"}}
+	for _, tx := range transactions {
+		debe, haber := "", ""
+		if tx.Type == shared.TransactionTypeExpense {
+			debe = strconv.FormatFloat(tx.Amount, 'f', 2, 64)
+		} else {
+			haber = strconv.FormatFloat(tx.Amount, 'f', 2, 64)
+		}
+		rows = append(rows, []string{
+			tx.CreatedAt.In(start.Location()).Format("2006-01-02 15:04:05"),
+			tx.Category,
+			movementLabel(tx.Type),
+			tx.Description,
+			debe,
+			haber,
+		})
+	}
+	if err := writer.WriteAll(rows); err != nil {
+		return "", fmt.Errorf("build weekly csv: %w", err)
+	}
+	_ = end
+	return buffer.String(), nil
+}
+
+func movementLabel(v shared.TransactionType) string {
+	if v == shared.TransactionTypeIncome {
+		return "Ingreso"
+	}
+	return "Gasto"
 }
 
 func (s *AccountingService) ExportTransactionsCSV(input shared.TransactionFilterInput) (string, error) {
@@ -462,9 +546,11 @@ func (s *AccountingService) GetAppSettings() (*shared.AppSettings, error) {
 	}
 
 	return &shared.AppSettings{
-		RankingDays:  records[0].GetInt("ranking_days"),
-		WeekStartDay: normalizeWeekStartDay(records[0].GetInt("week_start_day")),
-		WeeklyBudget: records[0].GetFloat("weekly_budget"),
+		RankingDays:     records[0].GetInt("ranking_days"),
+		WeekStartDay:    normalizeWeekStartDay(records[0].GetInt("week_start_day")),
+		WeeklyBudget:    records[0].GetFloat("weekly_budget"),
+		AllowOverBudget: records[0].GetBool("allow_over_budget"),
+		AllowOverGlobal: records[0].GetBool("allow_over_global"),
 	}, nil
 }
 
@@ -499,11 +585,19 @@ func (s *AccountingService) SaveAppSettings(input shared.AppSettings) (*shared.A
 	record.Set("ranking_days", days)
 	record.Set("week_start_day", weekStartDay)
 	record.Set("weekly_budget", weeklyBudget)
+	record.Set("allow_over_budget", input.AllowOverBudget)
+	record.Set("allow_over_global", input.AllowOverGlobal)
 	if err := s.app.Save(record); err != nil {
 		return nil, fmt.Errorf("save app settings: %w", err)
 	}
 
-	return &shared.AppSettings{RankingDays: days, WeekStartDay: weekStartDay, WeeklyBudget: weeklyBudget}, nil
+	return &shared.AppSettings{
+		RankingDays:     days,
+		WeekStartDay:    weekStartDay,
+		WeeklyBudget:    weeklyBudget,
+		AllowOverBudget: input.AllowOverBudget,
+		AllowOverGlobal: input.AllowOverGlobal,
+	}, nil
 }
 
 func (s *AccountingService) GetBudgets() ([]shared.Budget, error) {
@@ -602,11 +696,13 @@ func (s *AccountingService) DeleteBudget(id string) error {
 	return nil
 }
 
+func (s *AccountingService) weekBounds(weekOffset int) (time.Time, time.Time) {
+	start := startOfWeek(time.Now(), s.weekStartDay()).AddDate(0, 0, 7*weekOffset)
+	return start, start.AddDate(0, 0, 7)
+}
+
 func (s *AccountingService) GetWeeklySummary(weekOffset int) (*shared.WeeklySummary, error) {
-	startDay := s.weekStartDay()
-	now := time.Now()
-	weekStart := startOfWeek(now, startDay).AddDate(0, 0, 7*weekOffset)
-	weekEnd := weekStart.AddDate(0, 0, 7)
+	weekStart, weekEnd := s.weekBounds(weekOffset)
 
 	spent, err := s.expensesByCategory(weekStart, weekEnd)
 	if err != nil {
@@ -711,6 +807,15 @@ func (s *AccountingService) GetWeeklySummary(weekOffset int) (*shared.WeeklySumm
 		return nil, err
 	}
 
+	income, err := s.weeklyIncome(weekStart, weekEnd)
+	if err != nil {
+		return nil, err
+	}
+	prevIncome, err := s.weeklyIncome(weekStart.AddDate(0, 0, -7), weekStart)
+	if err != nil {
+		return nil, err
+	}
+
 	return &shared.WeeklySummary{
 		StartDate:        weekStart.Format("2006-01-02"),
 		EndDate:          weekEnd.AddDate(0, 0, -1).Format("2006-01-02"),
@@ -723,6 +828,9 @@ func (s *AccountingService) GetWeeklySummary(weekOffset int) (*shared.WeeklySumm
 		GlobalPercent:    globalPercent,
 		GlobalRemaining:  globalBudget - totalSpent,
 		AvailableBalance: balance.Total,
+		Income:           income,
+		Savings:          income - totalSpent,
+		PrevSavings:      prevIncome - prevTotal,
 		Categories:       categories,
 	}, nil
 }
@@ -821,6 +929,107 @@ func (s *AccountingService) globalWeeklyBudget() float64 {
 		return 0
 	}
 	return budget
+}
+
+func (s *AccountingService) weeklyIncome(start, end time.Time) (float64, error) {
+	records, err := s.app.FindRecordsByFilter("transactions",
+		"type = {:type} && created_at >= {:start} && created_at < {:end}",
+		"", 2000, 0, dbx.Params{
+			"type":  string(shared.TransactionTypeIncome),
+			"start": start.Format(time.RFC3339),
+			"end":   end.Format(time.RFC3339),
+		})
+	if err != nil {
+		return 0, fmt.Errorf("query weekly income: %w", err)
+	}
+
+	total := 0.0
+	for _, r := range records {
+		total += r.GetFloat("amount")
+	}
+	return total, nil
+}
+
+func (s *AccountingService) ensureWithinWeeklyBudget(categoryID string, amount float64, txType shared.TransactionType) error {
+	if txType != shared.TransactionTypeExpense {
+		return nil
+	}
+	if s.allowOverBudget() {
+		return nil
+	}
+
+	budgets, err := s.activeBudgetMap()
+	if err != nil {
+		return err
+	}
+	budget, ok := budgets[categoryID]
+	if !ok || budget.WeeklyAmount <= 0 {
+		return nil
+	}
+
+	start, end := s.weekBounds(0)
+	spent, err := s.expensesByCategory(start, end)
+	if err != nil {
+		return err
+	}
+
+	current := 0.0
+	if entry, ok := spent[categoryID]; ok {
+		current = entry.spent
+	}
+
+	if current+amount > budget.WeeklyAmount {
+		remaining := budget.WeeklyAmount - current
+		return fmt.Errorf("el gasto supera el presupuesto semanal de %s (disponible: %.2f)", budget.CategoryName, remaining)
+	}
+	return nil
+}
+
+func (s *AccountingService) ensureWithinGlobalBudget(amount float64, txType shared.TransactionType) error {
+	if txType != shared.TransactionTypeExpense {
+		return nil
+	}
+	if s.allowOverGlobal() {
+		return nil
+	}
+
+	global := s.globalWeeklyBudget()
+	if global <= 0 {
+		return nil
+	}
+
+	start, end := s.weekBounds(0)
+	spent, err := s.expensesByCategory(start, end)
+	if err != nil {
+		return err
+	}
+
+	var current float64
+	for _, entry := range spent {
+		current += entry.spent
+	}
+
+	if current+amount > global {
+		remaining := global - current
+		return fmt.Errorf("el gasto supera el tope semanal (disponible: %.2f)", remaining)
+	}
+	return nil
+}
+
+func (s *AccountingService) allowOverBudget() bool {
+	records, err := s.app.FindRecordsByFilter("app_settings", "", "", 1, 0)
+	if err != nil || len(records) == 0 {
+		return false
+	}
+	return records[0].GetBool("allow_over_budget")
+}
+
+func (s *AccountingService) allowOverGlobal() bool {
+	records, err := s.app.FindRecordsByFilter("app_settings", "", "", 1, 0)
+	if err != nil || len(records) == 0 {
+		return false
+	}
+	return records[0].GetBool("allow_over_global")
 }
 
 const defaultWeekStartDay = 1
@@ -1062,6 +1271,20 @@ func (s *AccountingService) AnalyzeDashboardWithAI(input shared.AnalyzeDashboard
 		return nil, err
 	}
 
+	prompt := fmt.Sprintf(
+		"Analiza este dashboard: balance total %.2f, ingresos %.2f, egresos %.2f, categorias %s",
+		summary.Balance.Total,
+		summary.Balance.Income,
+		summary.Balance.Expense,
+		summarizeCategoryBreakdown(summary.CategoryBreakdown),
+	)
+
+	if weekly, err := s.GetWeeklySummary(0); err == nil {
+		prompt += fmt.Sprintf(". Presupuesto semanal: %s", summarizeWeeklyBudget(weekly))
+	}
+
+	prompt += fmt.Sprintf(". Pregunta adicional: %s", strings.TrimSpace(input.Question))
+
 	payload := map[string]any{
 		"model": model.GetString("name"),
 		"messages": []map[string]string{
@@ -1070,15 +1293,8 @@ func (s *AccountingService) AnalyzeDashboardWithAI(input shared.AnalyzeDashboard
 				"content": "Eres un analista financiero para contabilidad personal. Responde en español con recomendaciones claras y accionables.",
 			},
 			{
-				"role": "user",
-				"content": fmt.Sprintf(
-					"Analiza este dashboard: balance total %.2f, ingresos %.2f, egresos %.2f, categorias %s. Pregunta adicional: %s",
-					summary.Balance.Total,
-					summary.Balance.Income,
-					summary.Balance.Expense,
-					summarizeCategoryBreakdown(summary.CategoryBreakdown),
-					strings.TrimSpace(input.Question),
-				),
+				"role":    "user",
+				"content": prompt,
 			},
 		},
 		"temperature": 0.4,
@@ -1449,6 +1665,32 @@ func summarizeCategoryBreakdown(items []shared.AccountingCategorySummary) string
 		parts = append(parts, fmt.Sprintf("%s: ingresos %.2f, egresos %.2f, neto %.2f", item.Name, item.Income, item.Expense, item.Net))
 	}
 	return strings.Join(parts, " | ")
+}
+
+func summarizeWeeklyBudget(w *shared.WeeklySummary) string {
+	parts := []string{fmt.Sprintf("gasto semanal %.2f", w.TotalSpent)}
+
+	if w.GlobalBudget > 0 {
+		parts = append(parts, fmt.Sprintf("tope global %.2f (%.0f%% usado)", w.GlobalBudget, w.GlobalPercent))
+	} else if w.TotalBudget > 0 {
+		parts = append(parts, fmt.Sprintf("presupuesto total %.2f (%.0f%% usado)", w.TotalBudget, w.TotalPercent))
+	}
+
+	parts = append(parts, fmt.Sprintf("fondos disponibles %.2f", w.AvailableBalance))
+
+	if len(w.Categories) > 0 {
+		cats := make([]string, 0, len(w.Categories))
+		for _, c := range w.Categories {
+			if c.Budget > 0 {
+				cats = append(cats, fmt.Sprintf("%s: %.2f de %.2f (%.0f%%)", c.CategoryName, c.Spent, c.Budget, c.PercentUsed))
+			} else {
+				cats = append(cats, fmt.Sprintf("%s: %.2f (sin presupuesto)", c.CategoryName, c.Spent))
+			}
+		}
+		parts = append(parts, "por categoria: "+strings.Join(cats, " | "))
+	}
+
+	return strings.Join(parts, "; ")
 }
 
 func buildProviderEndpoint(baseURL, chatPath string) (string, error) {

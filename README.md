@@ -1,118 +1,37 @@
-# Contaduria Personal MVP
+# Contaduria Personal
 
-MVP de escritorio `single-user` y `offline-first` con Go + PocketBase embebido + Wails.
+Aplicacion de escritorio, un solo usuario y offline, para que un estudiante controle ingresos, gastos y presupuestos semanales.
 
-## Arquitectura
+Stack: Go + PocketBase embebido + Wails. La interfaz vive en `frontend/dist`.
 
-```text
-MVP/
-  backend/
-    app.go                       # API expuesta a Wails
-    license.go                   # punto de extension para licenciamiento
-    bootstrap/
-      pocketbase.go              # arranque PocketBase + auto schema + seed inicial
-    services/
-      accounting_service.go      # logica de negocio
-  frontend/
-    dist/
-      index.html                 # UI por vistas (dashboard/contabilidad/calculadora/auditoria)
-      app.js                     # estado UI + llamadas Wails->Go
-      styles.css                 # estilos
-  shared/
-    types.go                     # DTOs y tipos compartidos
-  main.go                        # composicion Wails + backend
-  wails.json
-  go.mod
-```
+## Documentacion
 
-## Vistas del frontend
+- [Manual de usuario](docs/MANUAL.md)
+- [Estructura del proyecto](docs/STRUCTURE.md)
+- [Changelog](docs/CHANGELOG.md)
+- [Licencias de terceros](docs/THIRD_PARTY_LICENSES.md)
 
-1. Dashboard
-- Balance total
-- Ingresos totales
-- Egresos totales
-- Top 5 categorias (ingresos / egresos / comparativa)
-- Crear categoria (modal, verde=ingreso / rojo=egreso)
-- Categorias (click en una card para agregar transaccion)
-- Desglose por categorias contables (ingresos, egresos y neto)
+## Como ejecutar
 
-2. Ayuda
-- Asistente IA (analisis del dashboard)
-- Historial de analisis guardados (solo lectura)
-
-3. Calculadora
-- Calculadora de cobro
-- Categorias de cobro
-
-4. Auditoria
-- Transacciones recientes
-- Filtros por fecha/categoria/tipo
-- Exportacion CSV
-
-5. Configuraciones
-- Gestion de proveedores API IA
-- Gestion de modelos IA por proveedor
-- Guardado de API key + modelo activo
-- Periodo del top de categorias (dias, 0 = desde el 1 del mes)
-
-## Requisitos
-
-- Go 1.23+
-- Wails CLI (opcional, para modo dev/build):
+Requisitos: Go 1.23+ y, para empaquetar, Wails CLI.
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-```
-
-## Como correr
-
-```bash
-cd MVP
-go mod tidy
 go run .
 ```
 
-PocketBase se levanta embebido automaticamente.
+Los datos quedan en `pb_data/`, junto al ejecutable o a la carpeta del proyecto. Para usar la misma contabilidad en otra PC, copia esa carpeta completa y abre el programa alli.
 
-## API expuesta al frontend
+## Vistas visibles
 
-### Contabilidad
-- `CreateTransaction(data)`
-- `GetTransactions()`
-- `GetTransactionsFiltered(filters)`
-- `ExportTransactionsCSV(filters)`
-- `GetBalance()`
-- `GetDashboardSummary()`
-- `GetCategoryRanking(data)`
-- `CreateCategory(data)`
-- `GetCategories()`
-- `UpdateCategory(data)`
-- `DeleteCategory(id)`
+1. Dashboard: balance, top de categorias, donut ingresos/gastos, resumen de esta semana y cuentas.
+2. Historial semanal: semanas anteriores, donut del periodo, movimientos y exportacion CSV/Excel.
+3. Auditoria: filtros, filtro rapido de esta semana y CSV.
+4. Configuraciones: dias del ranking, inicio de semana y tope global.
 
-### Cotizacion / factura rapida
-- `CreateBillingCategory(data)`
-- `GetBillingCategories()`
-- `UpdateBillingCategory(data)`
-- `DeleteBillingCategory(id)`
-- `CalculateQuote(data)`
+Asistencia IA, calculadora y el catalogo de proveedores/modelos siguen en el codigo, pero estan ocultos en la interfaz.
 
-### IA (compatible con APIs tipo OpenAI/DeepSeek)
-- `GetAIProviders()`
-- `CreateAIProvider(data)`
-- `GetAIModels(providerID)`
-- `CreateAIModel(data)`
-- `GetAIConfiguration()`
-- `SaveAIConfiguration(data)`
-- `AnalyzeDashboardWithAI(input)`
-- `GetAIAnalyses()`
-- `DeleteAIAnalysis(id)`
+## API principal expuesta al frontend
 
-### Configuracion
-- `GetAppSettings()`
-- `SaveAppSettings(data)`
-
-## Nota tecnica del dashboard
-
-`GetDashboardSummary()` agrupa las transacciones por categoria contable y calcula por cada una: ingresos, egresos y neto.
-
-`GetCategoryRanking(data)` devuelve el top de categorias (ingresos/egresos) con el total y el rango de fechas del periodo configurable en `app_settings.ranking_days` (0 = desde el 1 del mes).
+- Contabilidad: categorias, transacciones, balance, dashboard, ranking, filtros y CSV.
+- Semana: `GetWeeklySummary`, `GetWeeklyTransactions`, `GetBudgets`, `SaveBudget`, `DeleteBudget`, `ExportWeeklyCSV`, `ExportWeeklyLedgerXLSX`.
+- Ajustes: `GetAppSettings`, `SaveAppSettings` (`ranking_days`, `week_start_day`, `weekly_budget`).

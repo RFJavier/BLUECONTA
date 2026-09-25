@@ -10,11 +10,11 @@
   <main class="app-shell">
     <header class="topbar panel">
       <div class="header-brand">
-        <div class="brand-logo">CP</div>
-        <div>
+        <!-- <div class="brand-logo">CP</div> -->
+        <!-- <div>
           <h1 class="brand-name">Contaduria Personal</h1>
-          <p>MVP offline para contabilidad y cotizacion.</p>
-        </div>
+          <p>Control semanal de ingresos, gastos y presupuestos.</p>
+        </div> -->
       </div>
       <button type="button" id="menuBtn" class="menu-btn" aria-haspopup="true" aria-expanded="false">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
@@ -26,16 +26,16 @@
         </button>
         <button type="button" class="menu-tile" data-view="semana" role="menuitem">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-          <span>Semana</span>
+          <span>Historial semanal</span>
         </button>
-        <button type="button" class="menu-tile" data-view="ayuda" role="menuitem">
+        <!-- <button type="button" class="menu-tile hidden" data-view="ayuda" role="menuitem">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
           <span>Asistencia con IA</span>
-        </button>
-        <button type="button" class="menu-tile" data-view="calculadora" role="menuitem">
+        </button> -->
+        <!-- <button type="button" class="menu-tile hidden" data-view="calculadora" role="menuitem">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="11" x2="16" y2="11"></line><line x1="8" y1="16" x2="16" y2="16"></line><line x1="8" y1="21" x2="12" y2="21"></line></svg>
           <span>Calculadora</span>
-        </button>
+        </button> -->
         <button type="button" class="menu-tile" data-view="auditoria" role="menuitem">
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <span>Auditoria</span>
@@ -51,7 +51,7 @@
       <div class="view-header">
         <h2>Dashboard General</h2>
         <div class="view-header-actions">
-          <button type="button" id="openHelpBtn" class="secondary">Asistencia con IA</button>
+          <button type="button" id="openHelpBtn" class="secondary hidden">Asistencia con IA</button>
           <button type="button" id="openCategoryModalBtn" class="secondary">Crear categoria</button>
         </div>
       </div>
@@ -68,7 +68,7 @@
         <h3>Top 5 categorias</h3>
         <div class="ranking-toolbar">
           <button type="button" class="ranking-btn income active" data-metric="income">Ingresos</button>
-          <button type="button" class="ranking-btn expense" data-metric="expense">Egresos</button>
+          <button type="button" class="ranking-btn expense" data-metric="expense">Gastos</button>
           <button type="button" class="ranking-btn mixed" data-metric="mixed">Comparativa</button>
         </div>
 
@@ -81,7 +81,7 @@
           <div class="ranking-divider"></div>
 
           <div class="donut-section">
-            <h4>Ingresos vs Egresos</h4>
+            <h4>Ingresos vs Gastos</h4>
             <div class="donut-wrap">
               <div id="balanceDonut" class="donut-chart">
                 <div class="donut-center">
@@ -98,7 +98,7 @@
               </div>
               <div class="indicator-row expense">
                 <span class="legend-dot expense"></span>
-                <span>Egresos</span>
+                <span>Gastos</span>
                 <strong id="legendExpense">$0.00</strong>
               </div>
               <div class="indicator-row flow" id="flowIndicator">
@@ -119,81 +119,51 @@
         <div id="categoryBars" class="cat-groups"></div>
       </div>
 
-      <div class="panel-sub">
-        <h3>Movimientos por categoria contable</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Categoria contable</th>
-              <th>Ingresos</th>
-              <th>Egresos</th>
-              <th>Neto</th>
-            </tr>
-          </thead>
-          <tbody id="dashboardBillingBody"></tbody>
-        </table>
-      </div>
     </section>
 
     <section id="view-semana" class="view hidden-view">
       <div class="view-header">
-        <h2>Resumen Semanal</h2>
-        <div class="week-nav">
-          <button type="button" id="prevWeekBtn" class="secondary">‹</button>
-          <div class="week-nav-label">
-            <strong id="weeklyRangeLabel">-</strong>
-            <small id="weeklyOffsetLabel" class="muted"></small>
+        <h2>Historial semanal</h2>
+        <div class="view-header-actions">
+          <div class="week-nav">
+            <button type="button" id="prevWeekBtn" class="secondary">‹</button>
+            <div class="week-nav-label">
+              <strong id="weeklyRangeLabel">-</strong>
+              <small id="weeklyOffsetLabel" class="muted"></small>
+            </div>
+            <button type="button" id="nextWeekBtn" class="secondary">›</button>
           </div>
-          <button type="button" id="nextWeekBtn" class="secondary">›</button>
-        </div>
-      </div>
-
-      <div class="stats-grid weekly-stats">
-        <div class="stat-card">
-          <span>Gastado</span>
-          <strong id="weeklySpent">$0.00</strong>
-        </div>
-        <div class="stat-card">
-          <span id="weeklyBudgetLabel">Presupuesto</span>
-          <strong id="weeklyBudget">$0.00</strong>
-        </div>
-        <div class="stat-card">
-          <span>Restante</span>
-          <strong id="weeklyRemaining">$0.00</strong>
-        </div>
-        <div class="stat-card">
-          <span>vs semana anterior</span>
-          <strong id="weeklyDelta">$0.00</strong>
+          <button type="button" id="exportWeekCsvBtn" class="secondary">Exportar CSV</button>
+          <button type="button" id="exportWeekXlsxBtn" class="secondary">Exportar Excel</button>
         </div>
       </div>
 
       <div class="panel-sub">
-        <div class="weekly-total">
-          <div class="cat-track">
-            <span id="weeklyTotalFill" class="cat-track-fill ok"></span>
-          </div>
-          <small id="weeklyTotalCaption" class="muted"></small>
-          <div id="weeklyCoverage" class="weekly-coverage hidden"></div>
-        </div>
+        <div id="historialSummary"></div>
+      </div>
+
+      <div class="panel-sub hidden" id="historialSavingsPanel">
+        <div id="historialSavings"></div>
       </div>
 
       <div class="panel-sub">
         <div class="view-header">
-          <h3>Gasto por categoria</h3>
-          <small class="muted">Haz clic en una categoria para registrar un gasto</small>
+          <h3>Movimientos de la semana</h3>
+          <small class="muted">Solo las cuentas con movimiento en el periodo seleccionado</small>
         </div>
-        <div id="weeklyCategoryCards" class="cat-grid"></div>
-      </div>
-
-      <div class="panel-sub">
-        <div class="view-header">
-          <h3>Presupuestos semanales</h3>
-          <div class="view-header-actions">
-            <button type="button" id="newBudgetCategoryBtn" class="secondary">Nueva categoria de gasto</button>
-            <button type="button" id="addBudgetBtn" class="secondary">Agregar presupuesto</button>
-          </div>
-        </div>
-        <ul id="budgetsList" class="list"></ul>
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Cuenta</th>
+              <th>Tipo</th>
+              <th>Concepto</th>
+              <th>Debe</th>
+              <th>Haber</th>
+            </tr>
+          </thead>
+          <tbody id="weekMovementsBody"></tbody>
+        </table>
       </div>
     </section>
 
@@ -339,7 +309,7 @@
     </section>
 
     <section id="view-configuraciones" class="view hidden-view">
-      <div class="grid two-col">
+      <div class="grid two-col hidden">
         <article class="panel">
           <h2>Conexion IA</h2>
           <form id="aiConfigForm" class="form">
@@ -414,8 +384,25 @@
             Tope global semanal (0 = sin tope)
             <input id="appSettingsWeeklyBudget" type="number" min="0" step="0.01" value="0">
           </label>
+          <label class="checkbox-label">
+            <input id="appSettingsAllowOverBudget" type="checkbox">
+            Permitir gastos después de alcanzar el presupuesto de la categoría
+          </label>
+          <label class="checkbox-label">
+            <input id="appSettingsAllowOverGlobal" type="checkbox">
+            Permitir gastos después de alcanzar el tope semanal
+          </label>
           <button type="submit">Guardar</button>
         </form>
+      </article>
+
+      <article class="panel">
+        <h2>Licencias</h2>
+        <div class="license-tabs">
+          <button type="button" class="license-tab active" data-tab="license">Licencia del software</button>
+          <button type="button" class="license-tab" data-tab="thirdparty">Licencias de terceros</button>
+        </div>
+        <pre id="licenseText" class="license-box"></pre>
       </article>
     </section>
   </main>
@@ -430,7 +417,7 @@
         </label>
         <div class="type-toggle">
           <button type="button" class="type-btn income active" data-type="income">Ingresos</button>
-          <button type="button" class="type-btn expense" data-type="expense">Egresos</button>
+          <button type="button" class="type-btn expense" data-type="expense">Gastos</button>
         </div>
         <div class="modal-actions">
           <button type="button" class="secondary" id="categoryModalCancel">Cancelar</button>
@@ -473,7 +460,7 @@
       <h3>Definir presupuesto</h3>
       <form id="budgetModalForm" class="form">
         <label>
-          Categoria (egreso)
+          Categoria (gasto)
           <select id="budgetModalCategory" required></select>
         </label>
         <label>

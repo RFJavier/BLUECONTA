@@ -27,6 +27,10 @@ export function DeleteCategory(arg1:string):Promise<void>;
 
 export function ExportTransactionsCSV(arg1:shared.TransactionFilterInput):Promise<string>;
 
+export function ExportWeeklyCSV(arg1:number):Promise<string>;
+
+export function ExportWeeklyLedgerXLSX(arg1:number):Promise<string>;
+
 export function GetAIAnalyses():Promise<Array<shared.AIAnalysisRecord>>;
 
 export function GetAIConfiguration():Promise<shared.AIConfiguration>;
@@ -51,17 +55,23 @@ export function GetCategoryRanking(arg1:shared.CategoryRankingInput):Promise<sha
 
 export function GetDashboardSummary():Promise<shared.DashboardSummary>;
 
+export function GetLegalInfo():Promise<shared.LegalInfo>;
+
 export function GetTransactions():Promise<Array<shared.Transaction>>;
 
 export function GetTransactionsFiltered(arg1:shared.TransactionFilterInput):Promise<Array<shared.Transaction>>;
 
 export function GetWeeklySummary(arg1:number):Promise<shared.WeeklySummary>;
 
+export function GetWeeklyTransactions(arg1:number):Promise<Array<shared.Transaction>>;
+
 export function SaveAIConfiguration(arg1:shared.SaveAIConfigurationInput):Promise<shared.AIConfiguration>;
 
 export function SaveAppSettings(arg1:shared.AppSettings):Promise<shared.AppSettings>;
 
 export function SaveBudget(arg1:shared.SaveBudgetInput):Promise<shared.Budget>;
+
+export function SetLegalInfo(arg1:shared.LegalInfo):Promise<void>;
 
 export function UpdateBillingCategory(arg1:shared.UpdateBillingCategoryInput):Promise<shared.BillingCategory>;
 

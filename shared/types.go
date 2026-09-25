@@ -153,9 +153,16 @@ type CategoryRankingResult struct {
 }
 
 type AppSettings struct {
-	RankingDays  int     `json:"ranking_days"`
-	WeekStartDay int     `json:"week_start_day"`
-	WeeklyBudget float64 `json:"weekly_budget"`
+	RankingDays     int     `json:"ranking_days"`
+	WeekStartDay    int     `json:"week_start_day"`
+	WeeklyBudget    float64 `json:"weekly_budget"`
+	AllowOverBudget bool    `json:"allow_over_budget"`
+	AllowOverGlobal bool    `json:"allow_over_global"`
+}
+
+type LegalInfo struct {
+	License            string `json:"license"`
+	ThirdPartyLicenses string `json:"third_party_licenses"`
 }
 
 type Budget struct {
@@ -193,6 +200,9 @@ type WeeklySummary struct {
 	GlobalPercent    float64                 `json:"global_percent"`
 	GlobalRemaining  float64                 `json:"global_remaining"`
 	AvailableBalance float64                 `json:"available_balance"`
+	Income           float64                 `json:"income"`
+	Savings          float64                 `json:"savings"`
+	PrevSavings      float64                 `json:"prev_savings"`
 	Categories       []WeeklyCategorySummary `json:"categories"`
 }
 

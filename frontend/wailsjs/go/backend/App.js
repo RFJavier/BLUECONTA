@@ -50,6 +50,14 @@ export function ExportTransactionsCSV(arg1) {
   return window['go']['backend']['App']['ExportTransactionsCSV'](arg1);
 }
 
+export function ExportWeeklyCSV(arg1) {
+  return window['go']['backend']['App']['ExportWeeklyCSV'](arg1);
+}
+
+export function ExportWeeklyLedgerXLSX(arg1) {
+  return window['go']['backend']['App']['ExportWeeklyLedgerXLSX'](arg1);
+}
+
 export function GetAIAnalyses() {
   return window['go']['backend']['App']['GetAIAnalyses']();
 }
@@ -98,6 +106,10 @@ export function GetDashboardSummary() {
   return window['go']['backend']['App']['GetDashboardSummary']();
 }
 
+export function GetLegalInfo() {
+  return window['go']['backend']['App']['GetLegalInfo']();
+}
+
 export function GetTransactions() {
   return window['go']['backend']['App']['GetTransactions']();
 }
@@ -110,6 +122,10 @@ export function GetWeeklySummary(arg1) {
   return window['go']['backend']['App']['GetWeeklySummary'](arg1);
 }
 
+export function GetWeeklyTransactions(arg1) {
+  return window['go']['backend']['App']['GetWeeklyTransactions'](arg1);
+}
+
 export function SaveAIConfiguration(arg1) {
   return window['go']['backend']['App']['SaveAIConfiguration'](arg1);
 }
@@ -120,6 +136,10 @@ export function SaveAppSettings(arg1) {
 
 export function SaveBudget(arg1) {
   return window['go']['backend']['App']['SaveBudget'](arg1);
+}
+
+export function SetLegalInfo(arg1) {
+  return window['go']['backend']['App']['SetLegalInfo'](arg1);
 }
 
 export function UpdateBillingCategory(arg1) {

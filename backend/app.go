@@ -14,6 +14,7 @@ type App struct {
 	runtime        *bootstrap.PocketBaseRuntime
 	accounting     *services.AccountingService
 	licenseManager *LicenseManager
+	legalInfo      *shared.LegalInfo
 }
 
 func NewApp(runtime *bootstrap.PocketBaseRuntime) *App {
@@ -22,6 +23,17 @@ func NewApp(runtime *bootstrap.PocketBaseRuntime) *App {
 		accounting:     services.NewAccountingService(runtime.App),
 		licenseManager: NewLicenseManager(),
 	}
+}
+
+func (a *App) SetLegalInfo(info *shared.LegalInfo) {
+	a.legalInfo = info
+}
+
+func (a *App) GetLegalInfo() *shared.LegalInfo {
+	if a.legalInfo == nil {
+		return &shared.LegalInfo{}
+	}
+	return a.legalInfo
 }
 
 func (a *App) Startup(ctx context.Context) {
@@ -101,6 +113,19 @@ func (a *App) SaveAppSettings(input shared.AppSettings) (*shared.AppSettings, er
 
 func (a *App) GetWeeklySummary(weekOffset int) (*shared.WeeklySummary, error) {
 	return a.accounting.GetWeeklySummary(weekOffset)
+}
+
+func (a *App) GetWeeklyTransactions(weekOffset int) ([]shared.Transaction, error) {
+	transactions, _, _, err := a.accounting.WeekTransactions(weekOffset)
+	return transactions, err
+}
+
+func (a *App) ExportWeeklyCSV(weekOffset int) (string, error) {
+	return a.accounting.ExportWeeklyCSV(weekOffset)
+}
+
+func (a *App) ExportWeeklyLedgerXLSX(weekOffset int) (string, error) {
+	return a.accounting.ExportWeeklyLedgerXLSX(weekOffset)
 }
 
 func (a *App) GetBudgets() ([]shared.Budget, error) {

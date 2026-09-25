@@ -21,6 +21,9 @@ const state = {
   weeklySummary: null,
   weeklyOffset: 0,
   budgets: [],
+  weekMovements: [],
+  legalInfo: null,
+  licenseTab: "license",
   transactionFilters: {
     start_date: "",
     end_date: "",
@@ -231,26 +234,6 @@ function renderDashboard() {
 
   renderBalanceDonut(summary.balance);
   renderCategoryCards();
-
-  const tbody = document.getElementById("dashboardBillingBody");
-  const rows = summary.category_breakdown || [];
-
-  if (rows.length === 0) {
-    tbody.innerHTML = "<tr><td colspan='4' class='empty'>No hay movimientos en categorias contables.</td></tr>";
-    return;
-  }
-
-  tbody.innerHTML = rows
-    .map(
-      (row) =>
-        `<tr>
-          <td>${esc(row.name)}</td>
-          <td>${fmtMoney(row.income)}</td>
-          <td>${fmtMoney(row.expense)}</td>
-          <td>${fmtMoney(row.net)}</td>
-        </tr>`
-    )
-    .join("");
 }
 
 function renderAIConfiguration() {
@@ -364,7 +347,7 @@ function renderCategoryCards() {
 
   const buildCards = (list) => {
     const colorClass = list[0].type === "income" ? "income" : "expense";
-    const typeLabel = colorClass === "income" ? "Ingreso" : "Egreso";
+    const typeLabel = colorClass === "income" ? "Ingreso" : "Gasto";
     const total = list.reduce((sum, c) => sum + amountOf(c), 0);
 
     const sorted = [...list].sort((a, b) => amountOf(b) - amountOf(a));
@@ -382,6 +365,14 @@ function renderCategoryCards() {
           ? `${count} transacciones · ${last}`
           : "Sin movimientos";
 
+        const actions =
+          colorClass === "income"
+            ? `<span class="cat-add-btn income">+ Ingresar</span>`
+            : `<span class="actions">
+                <span class="cat-add-btn expense">+ Gasto</span>
+                <span class="cat-add-btn budget" data-action="budget">Presupuesto</span>
+              </span>`;
+
         return `
           <div class="cat-card ${colorClass}${hasActivity ? "" : " is-empty"}" data-id="${c.id}" data-name="${esc(c.name)}">
             <div class="cat-top">
@@ -389,14 +380,17 @@ function renderCategoryCards() {
                 <strong>${esc(c.name)}</strong>
                 <span class="cat-pill ${colorClass}">${typeLabel}</span>
               </div>
-              <span class="cat-value ${colorClass}">${fmtMoney(amount)}</span>
+              <span class="cat-amounts">
+                <span class="cat-value ${colorClass}">${fmtMoney(amount)}</span>
+                ${colorClass === "expense" ? budgetMark(c.id) : ""}
+              </span>
             </div>
             <div class="cat-track">
               <span class="cat-track-fill ${colorClass}" style="width:${pct}%"></span>
             </div>
             <div class="cat-bottom">
               <span class="cat-sub">${meta}</span>
-              <span class="cat-add-btn ${colorClass}">+ Agregar</span>
+              ${actions}
             </div>
           </div>
         `;
@@ -416,12 +410,18 @@ function renderCategoryCards() {
   }
   if (expenseCats.length) {
     html += `<div class="cat-group">
-      <h4 class="cat-group-title expense">Egresos</h4>
+      <h4 class="cat-group-title expense">Gastos</h4>
       <div class="cat-grid">${buildCards(expenseCats)}</div>
     </div>`;
   }
 
   container.innerHTML = html;
+}
+
+function budgetMark(categoryID) {
+  const budget = (state.budgets || []).find((item) => item.category_id === categoryID && item.active !== false);
+  if (!budget || Number(budget.weekly_amount) <= 0) return "";
+  return `<span class="cat-budget" title="Presupuesto semanal">${fmtMoney(budget.weekly_amount)}</span>`;
 }
 
 function budgetStatus(pct) {
@@ -430,31 +430,10 @@ function budgetStatus(pct) {
   return "ok";
 }
 
-function coverageInfo(available, budget) {
-  if (budget <= 0) return null;
-  if (available >= budget) {
-    return { status: "ok", text: "Cubierto por tus fondos" };
-  }
-  const missing = budget - available;
-  if (available <= 0) {
-    return { status: "over", text: `Sin fondos · te faltan ${fmtMoney(missing)}` };
-  }
-  return { status: "warn", text: `Te faltan ${fmtMoney(missing)}` };
-}
-
-function renderCoverage(el, available, budget) {
-  const info = coverageInfo(available, budget);
-  if (!info) {
-    el.innerHTML = "";
-    el.classList.add("hidden");
-    return;
-  }
-
-  el.classList.remove("hidden");
-  el.innerHTML = `
-    <span class="weekly-coverage-funds">Fondos disponibles <strong class="${available < 0 ? "expense" : "income"}">${fmtMoney(available)}</strong></span>
-    <span class="coverage-badge ${info.status}">${info.text}</span>
-  `;
+function savingsInfo(savings) {
+  if (savings > 0) return { status: "ok", text: `Excedente de ${fmtMoney(savings)}` };
+  if (savings < 0) return { status: "over", text: `Gastaste ${fmtMoney(-savings)} de más` };
+  return { status: "warn", text: "Sin ahorro esta semana" };
 }
 
 function weekOffsetLabel(offset) {
@@ -475,57 +454,11 @@ function renderWeeklySummary() {
   if (!s) {
     rangeEl.textContent = "-";
     offsetEl.textContent = "";
-    document.getElementById("weeklySpent").textContent = fmtMoney(0);
-    document.getElementById("weeklyBudget").textContent = fmtMoney(0);
-    document.getElementById("weeklyRemaining").textContent = fmtMoney(0);
-    document.getElementById("weeklyDelta").textContent = fmtMoney(0);
-    document.getElementById("weeklyTotalCaption").textContent = "";
-    document.getElementById("weeklyCoverage").classList.add("hidden");
-    document.getElementById("weeklyCategoryCards").innerHTML = "<p class='empty'>Sin datos.</p>";
     return;
   }
 
   rangeEl.textContent = `${fmtRangeDate(s.start_date)} — ${fmtRangeDate(s.end_date)}`;
   offsetEl.textContent = weekOffsetLabel(state.weeklyOffset);
-
-  const hasGlobal = Number(s.global_budget) > 0;
-  const effectiveBudget = hasGlobal ? s.global_budget : s.total_budget;
-  const effectiveRemaining = hasGlobal ? s.global_remaining : s.total_remaining;
-  const effectivePct = hasGlobal ? s.global_percent : s.total_percent;
-
-  document.getElementById("weeklySpent").textContent = fmtMoney(s.total_spent);
-  document.getElementById("weeklyBudget").textContent = fmtMoney(effectiveBudget);
-  document.getElementById("weeklyBudgetLabel").textContent = hasGlobal ? "Tope global" : "Presupuesto";
-
-  const remainingEl = document.getElementById("weeklyRemaining");
-  remainingEl.textContent = fmtMoney(effectiveRemaining);
-  remainingEl.classList.toggle("income", effectiveRemaining >= 0);
-  remainingEl.classList.toggle("expense", effectiveRemaining < 0);
-
-  const deltaEl = document.getElementById("weeklyDelta");
-  deltaEl.textContent = fmtMoney(s.delta_vs_prev);
-  deltaEl.classList.toggle("income", s.delta_vs_prev <= 0);
-  deltaEl.classList.toggle("expense", s.delta_vs_prev > 0);
-
-  const totalFill = document.getElementById("weeklyTotalFill");
-  const pct = effectivePct || 0;
-  const status = budgetStatus(pct);
-  totalFill.className = `cat-track-fill ${status}`;
-  totalFill.style.width = `${Math.min(pct, 100)}%`;
-
-  let caption;
-  if (hasGlobal) {
-    caption = `${pct.toFixed(0)}% del tope global usado`;
-  } else if (s.total_budget > 0) {
-    caption = `${pct.toFixed(0)}% del presupuesto usado`;
-  } else {
-    caption = "Sin presupuesto definido";
-  }
-  document.getElementById("weeklyTotalCaption").textContent = caption;
-
-  renderCoverage(document.getElementById("weeklyCoverage"), Number(s.available_balance || 0), effectiveBudget);
-
-  renderWeeklyCategoryCards();
 }
 
 function renderWeeklyCategoryCards() {
@@ -557,7 +490,7 @@ function renderWeeklyCategoryCards() {
           <div class="cat-top">
             <div class="cat-heading">
               <strong>${esc(c.category_name)}</strong>
-              <span class="cat-pill expense">Egreso</span>
+              <span class="cat-pill expense">Gasto</span>
             </div>
             <span class="cat-value expense">${fmtMoney(c.spent)}</span>
           </div>
@@ -601,6 +534,68 @@ function renderBudgets() {
     .join("");
 }
 
+function buildWeeklySummaryHtml(s) {
+  const hasGlobal = Number(s.global_budget) > 0;
+  const effectiveBudget = hasGlobal ? s.global_budget : s.total_budget;
+  const effectiveRemaining = hasGlobal ? s.global_remaining : s.total_remaining;
+  const effectivePct = hasGlobal ? s.global_percent : s.total_percent;
+
+  const pct = effectivePct || 0;
+  const status = budgetStatus(pct);
+  const hasBudget = effectiveBudget > 0;
+  const budgetLabel = hasGlobal ? "Tope global" : "Presupuesto";
+  const delta = s.delta_vs_prev;
+  const deltaText = `${delta > 0 ? "+" : ""}${fmtMoney(delta)}`;
+  const deltaRowClass = delta > 0 ? "expense" : delta < 0 ? "income" : "";
+  const remainingRowClass = effectiveRemaining < 0 ? "expense" : "income";
+
+  const donutColor = status === "over" ? "var(--color-danger)" : status === "warn" ? "var(--color-warning)" : "var(--color-success)";
+  const usedPct = hasBudget ? Math.min(pct, 100) : 0;
+  const donutValue = hasBudget ? `${pct.toFixed(0)}%` : "—";
+  const donutLabel = hasBudget ? "usado" : "sin tope";
+
+  const savings = Number(s.savings || 0);
+  const savingsRowClass = savings > 0 ? "income" : savings < 0 ? "expense" : "";
+  const saving = savingsInfo(savings);
+  const available = Number(s.available_balance || 0);
+  const availableClass = available < 0 ? "expense" : "income";
+  const prevSavings = Number(s.prev_savings || 0);
+
+  const overGlobal = hasGlobal && Number(s.total_spent) > effectiveBudget;
+  const overAmount = overGlobal ? Number(s.total_spent) - effectiveBudget : 0;
+  const prevSavingsLine = overGlobal
+    ? `<span class="weekly-prev-savings">Tu presupuesto fue excedido esta semana: <strong class="expense">${fmtMoney(overAmount)}</strong></span>`
+    : `<span class="weekly-prev-savings">Semana pasada ahorraste <strong class="${prevSavings >= 0 ? "income" : "expense"}">${fmtMoney(prevSavings)}</strong></span>`;
+
+  return `
+    <div class="weekly-summary">
+      <div class="weekly-donut">
+        <div class="budget-donut" style="--used-pct:${usedPct}%; --used-color:${donutColor}">
+          <div class="donut-center">
+            <strong>${donutValue}</strong>
+            <small>${donutLabel}</small>
+          </div>
+        </div>
+      </div>
+      <div class="weekly-indicators">
+        <div class="indicator-row"><span class="legend-dot income"></span><span>Ingresado</span><strong>${fmtMoney(Number(s.income || 0))}</strong></div>
+        <div class="indicator-row"><span class="legend-dot expense"></span><span>Gastado</span><strong>${fmtMoney(s.total_spent)}</strong></div>
+        <div class="indicator-row"><span class="legend-dot"></span><span>${budgetLabel}</span><strong>${fmtMoney(effectiveBudget)}</strong></div>
+        <div class="indicator-row ${remainingRowClass}"><span class="legend-dot ${remainingRowClass}"></span><span>Restante</span><strong>${fmtMoney(effectiveRemaining)}</strong></div>
+        <div class="indicator-row ${savingsRowClass}"><span class="legend-dot ${savingsRowClass}"></span><span>Ahorro</span><strong>${fmtMoney(savings)}</strong></div>
+        <div class="indicator-row ${deltaRowClass}"><span class="legend-dot ${deltaRowClass}"></span><span>vs semana anterior</span><strong>${deltaText}</strong></div>
+        <div class="weekly-coverage">
+          <span class="coverage-badge ${saving.status}">${saving.text}</span>
+        </div>
+        <div class="weekly-coverage">
+          <span class="weekly-coverage-funds">Fondos disponibles <strong class="${availableClass}">${fmtMoney(available)}</strong></span>
+          ${prevSavingsLine}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderWeeklyWidget() {
   const s = state.weeklySummary;
   const rangeEl = document.getElementById("weeklyWidgetRange");
@@ -613,45 +608,41 @@ function renderWeeklyWidget() {
   }
 
   rangeEl.textContent = `${fmtRangeDate(s.start_date)} — ${fmtRangeDate(s.end_date)}`;
+  contentEl.innerHTML = buildWeeklySummaryHtml(s);
+}
 
-  const hasGlobal = Number(s.global_budget) > 0;
-  const effectiveBudget = hasGlobal ? s.global_budget : s.total_budget;
-  const effectiveRemaining = hasGlobal ? s.global_remaining : s.total_remaining;
-  const effectivePct = hasGlobal ? s.global_percent : s.total_percent;
+function renderHistorialSummary() {
+  const s = state.weeklySummary;
+  const el = document.getElementById("historialSummary");
 
-  const pct = effectivePct || 0;
-  const status = budgetStatus(pct);
-  const hasBudget = effectiveBudget > 0;
-  const budgetLabel = hasGlobal ? "Tope global" : "Presupuesto";
-  const delta = s.delta_vs_prev;
-  const deltaText = delta > 0 ? `+${fmtMoney(delta)}` : fmtMoney(delta);
-  const deltaClass = delta > 0 ? "worse" : delta < 0 ? "better" : "muted";
+  if (!s) {
+    el.innerHTML = "<p class='empty'>Sin datos.</p>";
+    return;
+  }
 
-  const progress = hasBudget
-    ? `<div class="cat-track"><span class="cat-track-fill ${status}" style="width:${Math.min(pct, 100)}%"></span></div>`
-    : "";
+  el.innerHTML = buildWeeklySummaryHtml(s);
+}
 
-  const caption = hasBudget
-    ? `${pct.toFixed(0)}% usado · restante ${fmtMoney(effectiveRemaining)}`
-    : "Sin presupuesto definido";
+function renderHistorialSavings() {
+  const s = state.weeklySummary;
+  const panel = document.getElementById("historialSavingsPanel");
+  const el = document.getElementById("historialSavings");
 
-  const coverage = coverageInfo(Number(s.available_balance || 0), effectiveBudget);
-  const coverageHtml = coverage
-    ? `<span class="coverage-badge ${coverage.status}">${coverage.text}</span>`
-    : "";
+  if (!s) {
+    panel.classList.add("hidden");
+    return;
+  }
 
-  contentEl.innerHTML = `
-    <div class="weekly-widget">
-      <div class="weekly-widget-row">
-        <span>Gastado <strong>${fmtMoney(s.total_spent)}</strong></span>
-        <span>${budgetLabel} <strong>${fmtMoney(effectiveBudget)}</strong></span>
-        <span>Restante <strong class="${effectiveRemaining < 0 ? "expense" : "income"}">${fmtMoney(effectiveRemaining)}</strong></span>
-        <span>vs ant <strong class="${deltaClass}">${deltaText}</strong></span>
-      </div>
-      ${progress}
-      <small class="muted">${caption} ${coverageHtml}</small>
-    </div>
-  `;
+  const savings = Number(s.savings || 0);
+  if (savings > 0) {
+    panel.classList.remove("hidden");
+    el.innerHTML = `<div class="savings-banner ok">Este es tu ahorro en esta semana: <strong>${fmtMoney(savings)}</strong>. ¡Felicidades!</div>`;
+  } else if (savings < 0) {
+    panel.classList.remove("hidden");
+    el.innerHTML = `<div class="savings-banner over">Esta semana gastaste <strong>${fmtMoney(-savings)}</strong> más de lo que ingresaste.</div>`;
+  } else {
+    panel.classList.add("hidden");
+  }
 }
 
 function renderQuoteResult() {
@@ -672,7 +663,7 @@ function vbarColumns(items, colorClass) {
   }
 
   const field = colorClass === "income" ? "income" : "expense";
-  const label = colorClass === "income" ? "Ingresos" : "Egresos";
+  const label = colorClass === "income" ? "Ingresos" : "Gastos";
   const values = items.map((item) => Number(item[field] || 0));
   const max = Math.max(...values, 1);
 
@@ -709,8 +700,8 @@ function renderCategoryRanking() {
             <div class="vbar-chart">${incomeItems.length ? vbarColumns(incomeItems, "income") : "<p class='empty'>Sin ingresos</p>"}</div>
           </div>
           <div class="vbar-group">
-            <div class="vbar-group-title expense">Egresos</div>
-            <div class="vbar-chart">${expenseItems.length ? vbarColumns(expenseItems, "expense") : "<p class='empty'>Sin egresos</p>"}</div>
+            <div class="vbar-group-title expense">Gastos</div>
+            <div class="vbar-chart">${expenseItems.length ? vbarColumns(expenseItems, "expense") : "<p class='empty'>Sin gastos</p>"}</div>
           </div>
         </div>
       `;
@@ -735,7 +726,7 @@ function renderRankingIndicator() {
   </span>`;
   const expenseItem = `<span class="indicator-item expense">
     <span class="legend-dot expense"></span>
-    <span>Egresos <strong>${fmtMoney(state.rankingTotalExpense)}</strong></span>
+    <span>Gastos <strong>${fmtMoney(state.rankingTotalExpense)}</strong></span>
   </span>`;
   const rangeItem = `<span class="indicator-range">${range}</span>`;
 
@@ -819,17 +810,69 @@ async function refreshAppSettings() {
   document.getElementById("appSettingsDays").value = state.appSettings.ranking_days ?? 0;
   document.getElementById("appSettingsWeekStart").value = state.appSettings.week_start_day || 1;
   document.getElementById("appSettingsWeeklyBudget").value = state.appSettings.weekly_budget ?? 0;
+  document.getElementById("appSettingsAllowOverBudget").checked = !!state.appSettings.allow_over_budget;
+  document.getElementById("appSettingsAllowOverGlobal").checked = !!state.appSettings.allow_over_global;
 }
 
 async function refreshWeeklySummary() {
   state.weeklySummary = await getBackend().GetWeeklySummary(state.weeklyOffset);
+  state.weekMovements = await getBackend().GetWeeklyTransactions(state.weeklyOffset);
   renderWeeklySummary();
   renderWeeklyWidget();
+  renderHistorialSummary();
+  renderHistorialSavings();
+  renderWeekMovements();
 }
 
 async function refreshBudgets() {
   state.budgets = await getBackend().GetBudgets();
-  renderBudgets();
+  renderCategoryCards();
+}
+
+function renderLicense() {
+  const box = document.getElementById("licenseText");
+  const info = state.legalInfo;
+  if (!info) {
+    box.textContent = "";
+    return;
+  }
+  box.textContent = state.licenseTab === "thirdparty" ? info.third_party_licenses : info.license;
+}
+
+async function refreshLegalInfo() {
+  state.legalInfo = await getBackend().GetLegalInfo();
+  renderLicense();
+}
+
+function onLicenseTabClick(tab) {
+  state.licenseTab = tab;
+  document.querySelectorAll(".license-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tab);
+  });
+  renderLicense();
+}
+
+function renderWeekMovements() {
+  const tbody = document.getElementById("weekMovementsBody");
+  const rows = state.weekMovements || [];
+  if (!rows.length) {
+    tbody.innerHTML = "<tr><td colspan='6' class='empty'>Sin movimientos en esta semana.</td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map((tx) => {
+      const isExpense = tx.type === "expense";
+      return `<tr>
+        <td>${fmtDate(tx.created_at)}</td>
+        <td>${esc(tx.category || "-")}</td>
+        <td>${isExpense ? "Gasto" : "Ingreso"}</td>
+        <td>${esc(tx.description || "-")}</td>
+        <td class="amount expense">${isExpense ? fmtMoney(tx.amount) : ""}</td>
+        <td class="amount income">${isExpense ? "" : fmtMoney(tx.amount)}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 async function refreshAll() {
@@ -845,6 +888,7 @@ async function refreshAll() {
     refreshAppSettings(),
     refreshBudgets(),
     refreshWeeklySummary(),
+    refreshLegalInfo(),
   ]);
   await refreshAIConfiguration();
 }
@@ -1000,7 +1044,7 @@ function closeTransactionModal() {
 function setTransactionTypeBadge(type) {
   const badge = document.getElementById("transactionModalTypeBadge");
   const isIncome = type === "income";
-  badge.textContent = isIncome ? "Ingreso" : "Egreso";
+  badge.textContent = isIncome ? "Ingreso" : "Gasto";
   badge.classList.toggle("income", isIncome);
   badge.classList.toggle("expense", !isIncome);
 }
@@ -1143,6 +1187,64 @@ async function onExportCSV() {
   }
 }
 
+async function onExportWeeklyCSV() {
+  const s = state.weeklySummary;
+  if (!s) {
+    showToast("No hay semana seleccionada.", true);
+    return;
+  }
+
+  try {
+    const csv = await getBackend().ExportWeeklyCSV(state.weeklyOffset);
+    if (!csv || csv.trim() === "") {
+      showToast("No hay movimientos en esta semana.", true);
+      return;
+    }
+
+    downloadCSV(csv, `semana_${s.start_date}_${s.end_date}.csv`);
+    showToast("CSV de la semana exportado.");
+  } catch (error) {
+    showToast(error.message || "No se pudo exportar el CSV.", true);
+  }
+}
+
+async function onExportWeeklyXLSX() {
+  const s = state.weeklySummary;
+  if (!s) {
+    showToast("No hay semana seleccionada.", true);
+    return;
+  }
+
+  try {
+    const encoded = await getBackend().ExportWeeklyLedgerXLSX(state.weeklyOffset);
+    if (!encoded) {
+      showToast("No se pudo generar el Excel.", true);
+      return;
+    }
+    downloadBase64(encoded, `libro_semanal_${s.start_date}_${s.end_date}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    showToast("Excel contable exportado.");
+  } catch (error) {
+    showToast(error.message || "No se pudo exportar el Excel.", true);
+  }
+}
+
+function downloadBase64(encoded, filename, mime) {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function onProviderSelectionChanged() {
   renderAIModelOptions(aiProviderSelectEl.value);
 }
@@ -1274,10 +1376,24 @@ async function onSaveAppSettings(event) {
   const days = Number(document.getElementById("appSettingsDays").value) || 0;
   const weekStart = Number(document.getElementById("appSettingsWeekStart").value) || 1;
   const weeklyBudget = Number(document.getElementById("appSettingsWeeklyBudget").value) || 0;
+  const allowOverBudget = document.getElementById("appSettingsAllowOverBudget").checked;
+  const allowOverGlobal = document.getElementById("appSettingsAllowOverGlobal").checked;
 
   try {
-    await getBackend().SaveAppSettings({ ranking_days: days, week_start_day: weekStart, weekly_budget: weeklyBudget });
-    state.appSettings = { ranking_days: days, week_start_day: weekStart, weekly_budget: weeklyBudget };
+    await getBackend().SaveAppSettings({
+      ranking_days: days,
+      week_start_day: weekStart,
+      weekly_budget: weeklyBudget,
+      allow_over_budget: allowOverBudget,
+      allow_over_global: allowOverGlobal,
+    });
+    state.appSettings = {
+      ranking_days: days,
+      week_start_day: weekStart,
+      weekly_budget: weeklyBudget,
+      allow_over_budget: allowOverBudget,
+      allow_over_global: allowOverGlobal,
+    };
     await Promise.all([refreshCategoryRanking(), refreshWeeklySummary()]);
     showToast("Configuracion guardada.");
   } catch (error) {
@@ -1406,7 +1522,6 @@ function wireEvents() {
   });
 
   document.getElementById("openCategoryModalBtn").addEventListener("click", () => openCategoryModal("income"));
-  document.getElementById("newBudgetCategoryBtn").addEventListener("click", openCategoryModalForBudget);
   document.getElementById("categoryModalForm").addEventListener("submit", onCreateCategoryFromModal);
   document.getElementById("categoryModalCancel").addEventListener("click", closeCategoryModal);
   document.querySelector(".type-toggle").addEventListener("click", onCategoryTypeClick);
@@ -1415,6 +1530,13 @@ function wireEvents() {
   });
 
   document.getElementById("categoryBars").addEventListener("click", (event) => {
+    const budgetBtn = event.target.closest("[data-action='budget']");
+    if (budgetBtn) {
+      const card = budgetBtn.closest(".cat-card");
+      if (card) openBudgetModal(card.dataset.id, true);
+      return;
+    }
+
     const card = event.target.closest(".cat-card");
     if (!card) return;
     const category = getCategoryById(card.dataset.id);
@@ -1447,49 +1569,23 @@ function wireEvents() {
   document.getElementById("newProviderForm").addEventListener("submit", onCreateAIProvider);
   document.getElementById("newModelForm").addEventListener("submit", onCreateAIModel);
   document.getElementById("appSettingsForm").addEventListener("submit", onSaveAppSettings);
-  document.getElementById("aiAnalyzeForm").addEventListener("submit", onAnalyzeDashboardWithAI);
   document.getElementById("aiAnalysesList").addEventListener("click", onAIAnalysesAction);
+  document.querySelector(".license-tabs").addEventListener("click", (event) => {
+    const tab = event.target.closest(".license-tab");
+    if (!tab) return;
+    onLicenseTabClick(tab.dataset.tab);
+  });
 
   document.getElementById("prevWeekBtn").addEventListener("click", onPrevWeek);
   document.getElementById("nextWeekBtn").addEventListener("click", onNextWeek);
-  document.getElementById("addBudgetBtn").addEventListener("click", () => openBudgetModal(null, false));
+  document.getElementById("exportWeekCsvBtn").addEventListener("click", onExportWeeklyCSV);
+  document.getElementById("exportWeekXlsxBtn").addEventListener("click", onExportWeeklyXLSX);
   document.getElementById("budgetModalForm").addEventListener("submit", onSaveBudget);
   document.getElementById("budgetModalCancel").addEventListener("click", closeBudgetModal);
   budgetModalEl.addEventListener("click", (event) => {
     if (event.target === budgetModalEl) closeBudgetModal();
   });
   document.getElementById("thisWeekBtn").addEventListener("click", onThisWeekFilter);
-
-  document.getElementById("weeklyCategoryCards").addEventListener("click", (event) => {
-    const budgetBtn = event.target.closest("[data-action='budget']");
-    if (budgetBtn) {
-      const card = budgetBtn.closest(".cat-card");
-      if (card) openBudgetModal(card.dataset.id, true);
-      return;
-    }
-
-    const registerBtn = event.target.closest("[data-action='register']");
-    const card = registerBtn ? registerBtn.closest(".cat-card") : event.target.closest(".cat-card");
-    if (!card) return;
-
-    const category = getCategoryById(card.dataset.id);
-    if (category) {
-      openTransactionModalForCategory(category);
-    } else {
-      openTransactionModalForType("expense");
-    }
-  });
-
-  document.getElementById("budgetsList").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) return;
-    const { action, id } = button.dataset;
-    if (action === "edit-budget") {
-      openBudgetModal(button.dataset.category, true);
-    } else if (action === "delete-budget") {
-      onDeleteBudget(id);
-    }
-  });
 }
 
 (async function init() {

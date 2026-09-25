@@ -41,8 +41,8 @@ func ensureCollections(app *pocketbase.PocketBase) error {
 			return fmt.Errorf("create categories collection: %w", err)
 		}
 
-		if err := seedExpenseCategories(app, categories); err != nil {
-			return fmt.Errorf("seed expense categories: %w", err)
+		if err := seedCategories(app, categories); err != nil {
+			return fmt.Errorf("seed categories: %w", err)
 		}
 	}
 
@@ -294,13 +294,21 @@ func seedBillingCategories(app *pocketbase.PocketBase, collection *core.Collecti
 	return nil
 }
 
-func seedExpenseCategories(app *pocketbase.PocketBase, collection *core.Collection) error {
-	names := []string{"Alimentación", "Transporte", "Otros"}
+func seedCategories(app *pocketbase.PocketBase, collection *core.Collection) error {
+	seeds := []struct {
+		name string
+		kind string
+	}{
+		{name: "Fondos personales", kind: "income"},
+		{name: "Alimentación", kind: "expense"},
+		{name: "Transporte", kind: "expense"},
+		{name: "Otros", kind: "expense"},
+	}
 
-	for _, name := range names {
+	for _, seed := range seeds {
 		record := core.NewRecord(collection)
-		record.Set("name", name)
-		record.Set("type", "expense")
+		record.Set("name", seed.name)
+		record.Set("type", seed.kind)
 		if err := app.Save(record); err != nil {
 			return err
 		}
@@ -423,6 +431,12 @@ func newAppSettingsCollection() *core.Collection {
 		&core.NumberField{
 			Name: "weekly_budget",
 			Min:  float64Ptr(0),
+		},
+		&core.BoolField{
+			Name: "allow_over_budget",
+		},
+		&core.BoolField{
+			Name: "allow_over_global",
 		},
 	)
 	return collection
